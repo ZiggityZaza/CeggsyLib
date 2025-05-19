@@ -1,43 +1,4 @@
-/* _,.----.    ,-,--.            .=-.-.
- .' .' -   \ ,-.'-  _\  _.-.    /==/_ /  _..---.
-/==/  ,  ,-'/==/_ ,_.'.-,.'|   |==|, | .' .'.-. \
-|==|-   |  .\==\  \  |==|, |   |==|  |/==/- '=' /
-|==|_   `-' \\==\ -\ |==|- |   |==|- ||==|-,   '
-|==|   _  , |_\==\ ,\|==|, |   |==| ,||==|  .=. \
-\==\.       /==/\/ _ |==|- `-._|==|- |/==/- '=' ,|
- `-.`.___.-'\==\ - , /==/ - , ,/==/. /==|   -   /
-             `--`---'`--`-----'`--`-``-._`.___,' */
-
-
-
-inline constexpr char ASCII_ART[] = R"(
-                %@         %@
-                @%%@%###@%%*
-              #*%##******#%*#*@
-                %*#*@%%%%#@*@*@
-      @#**%@  ##*%#@%**%*#*@*#%
-    #**#@@@@   %%%@*%**%*%@%#@
-    #**@@@@@   @%@*%%%@@%#%#@@@
-  #***%         @*#@@#*%%%*#@
-  #****%@@@@@@@@@@@%%%%%%#%%%%@@@
-@****#*****#%%@@@***********%@@@@@@
-  @********%%%%@@@@%#*%%*****%@@@@@@@
-            @@@@@**@@@@@@*@@@@@@@@@@@
-            @#******#%%%@@@%%@******#
-              @**********@@@**#@******@
-              #*********@%@#*#@@@#****
-   _,.----.    ,-,--.            .=-.-.
- .' .' -   \ ,-.'-  _\  _.-.    /==/_ /  _..---.
-/==/  ,  ,-'/==/_ ,_.'.-,.'|   |==|, | .' .'.-. \
-|==|-   |  .\==\  \  |==|, |   |==|  |/==/- '=' /
-|==|_   `-' \\==\ -\ |==|- |   |==|- ||==|-,   '
-|==|   _  , |_\==\ ,\|==|, |   |==| ,||==|  .=. \
-\==\.       /==/\/ _ |==|- `-._|==|- |/==/- '=' ,|
- `-.`.___.-'\==\ - , /==/ - , ,/==/. /==|   -   /
-             `--`---'`--`-----'`--`-``-._`.___,' 
-)";
-
-
+// LICENSE: Don't pretend like you made this but other than that, do whatever you want.
 
 
 // Including every single header that might ever be needed
@@ -67,7 +28,6 @@ inline constexpr char ASCII_ART[] = R"(
 #if __has_include("httplib.h")
   #include "httplib.h"
 #endif
-
 
 #if __cplusplus < 202002L
   #error "Requires C++ >= 20"
@@ -409,15 +369,21 @@ namespace cslib {
     }
 
 
-    static MACRO BLACK = "\033[30m";
-    static MACRO RED = "\033[31m";
-    static MACRO GREEN = "\033[32m";
-    static MACRO YELLOW = "\033[33m";
-    static MACRO BLUE = "\033[34m";
-    static MACRO MAGENTA = "\033[35m";
-    static MACRO CYAN = "\033[36m";
-    static MACRO WHITE = "\033[37m";
-    static MACRO RESET = "\033[0m";
+    static MACRO _BLACK = "\033[30m";
+    static MACRO _RED = "\033[31m";
+    static MACRO _GREEN = "\033[32m";
+    static MACRO _YELLOW = "\033[33m";
+    static MACRO _BLUE = "\033[34m";
+    static MACRO _MAGENTA = "\033[35m";
+    static MACRO _CYAN = "\033[36m";
+    static MACRO _WHITE = "\033[37m";
+    static MACRO _RESET = "\033[0m";
+    /*
+      Some C developers like to 'enjoy' the legacy design
+      of C and claim commonly used names for their own
+      libraries. The '_' prefix is used to avoid name
+      collisions with C code.
+    */
 
 
     class Proxy { public:
@@ -464,7 +430,7 @@ namespace cslib {
       return input;
     }
   };
-  inline Out cslibOut("[Custom Library++]: ", Out::BLACK); // Out channel for this lib
+  inline Out cslibOut("[Custom Library++]: ", Out::_BLACK); // Out channel for this lib
 
 
 
@@ -1281,7 +1247,7 @@ namespace cslib {
     MACRO LRZTAR_COMPRESS_CLI = "lrztar -z ";
     MACRO LRZTAR_DECOMPRESS_CLI = "lrztar -d ";
     MACRO LRZTAR_EXTENSION = ".tar.lrz";
-    Out lrztarOut("[LRZTAR by cslib]: ", Out::CYAN);
+    Out lrztarOut("[LRZTAR by cslib]: ", Out::_CYAN);
 
 
     void print_lrztar_content(File sourceFile) {
@@ -1376,7 +1342,6 @@ namespace cslib {
 
 
 
-
   #if __has_include("httplib.h")
   namespace LocalServer { // [Not tested]
     /*
@@ -1388,7 +1353,7 @@ namespace cslib {
 
     MACRO PORT = 8080;
     MACRO CONTENT_TYPE = "text/plain";
-    MACRO LISTEN_TO = "192.168.178.34";
+    MACRO LISTEN_TO = "0.0.0.0";
 
 
     std::function<void(const httplib::Request&, httplib::Response&)> errorHandler;

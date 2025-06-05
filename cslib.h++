@@ -87,6 +87,35 @@ namespace cslib {
 
 
 
+  template <typename Key, typename Container>
+  bool contains(Container container, Key key) {
+    /*
+      Checks if the container contains the key.
+      Example:
+        std::vector<int> vec = {1, 2, 3, 4, 5};
+        bool hasThree = contains(vec, 3);
+        // hasThree = true
+    */
+    return std::find(container.begin(), container.end(), key) != container.end();
+  }
+  template <typename Containers>
+  bool have_something_common(Containers c1, Containers c2) {
+    /*
+      Checks if two containers have something in common.
+      Example:
+        std::vector<int> vec1 = {1, 2, 3};
+        std::vector<int> vec2 = {3, 4, 5};
+        bool common = have_something_common(vec1, vec2);
+        // common = true
+    */
+    for (auto item : c1)
+      if (contains(c2, item))
+        return true;
+    return false;
+  }
+
+
+
   std::string get_env(std::string var) {
     /*
       Returns the value of the environment variable with that name.
@@ -139,7 +168,7 @@ namespace cslib {
         // str = "Hello World"
     */
 
-    // Try for std::string(T)
+    // Try std::string(T) in string-like types
     if constexpr (std::is_same_v<T, std::string>)
       return value;
     else if constexpr (std::is_same_v<T, char*>)
@@ -151,13 +180,9 @@ namespace cslib {
     else if constexpr (std::is_same_v<T, std::string_view>)
       return std::string(value);
 
-    // Try for std::to_string(T)
-    if constexpr (std::is_arithmetic_v<T>)
+    // Try std::to_string(T) in numbers
+    else if constexpr (std::is_integral_v<T> or std::is_floating_point_v<T>)
       return std::to_string(value);
-    else if constexpr (std::is_same_v<T, bool>)
-      return value ? "true" : "false";
-    else if constexpr (std::is_same_v<T, std::nullptr_t>)
-      return "nullptr";
 
     // Give up
     THROW_HERE("Failed str conversion");
@@ -214,6 +239,57 @@ namespace cslib {
     for (char& c : str)
       c = std::tolower(c);
     return str;
+  }
+
+
+
+  std::string escape_str(std::string str) {
+    /*
+      Escape special characters in a string.
+      Example:
+        str = escape_str("Hello \"World\"");
+        // str becomes literally "Hello \"World\""
+    */
+    std::string result;
+    for (char c : str) {
+      switch (c) {
+        case '"': result += "\\\""; break;
+        case '\\': result += "\\\\"; break;
+        case '\n': result += "\\n"; break;
+        case '\r': result += "\\r"; break;
+        case '\t': result += "\\t"; break;
+        default: result += c; break;
+      }
+    }
+    return result;
+  }
+  std::string unescape_str(std::string str) {
+    /*
+      Unescape special characters in a string.
+      Example:
+        str = unescape_str("Hello \\\"World\\\"");
+        // str becomes "Hello "World"" on binary level
+    */
+    std::string result;
+    bool escape = false; // Flag to check if the next character is escaped
+    for (char c : str) {
+      if (escape) {
+        switch (c) {
+          case '"': result += '"'; break;
+          case '\\': result += '\\'; break;
+          case 'n': result += '\n'; break;
+          case 'r': result += '\r'; break;
+          case 't': result += '\t'; break;
+          default: result += c; break; // If not a special character, just add it
+        }
+        escape = false;
+      } else if (c == '\\') {
+        escape = true; // Next character is escaped
+      } else {
+        result += c; // Just add the character
+      }
+    }
+    return result;
   }
 
 
@@ -437,96 +513,45 @@ namespace cslib {
 
   class TimeStamp { public:
     /*
-      A class that represents a timestamp. It can be used to measure
-      the time taken by a function or a block of code.
+      A wrapper around std::chrono that I actually understand.
     */
 
-    static void sleep_until_tomorrow(int hour, int minute, int second = 0) {
-      /*
-        This function takes a time and sleeps until that time tomorrow.
-        Example:
-          cslib::TimeStamp::sleep_until_tomorrow(3, 33);
-          // Sleeps until 3:33:00 tomorrow
-        Note:
-          Again, special thanks to copilot.
-      */
-      std::time_t now = std::time(nullptr);
-      std::tm* local_time = std::localtime(&now);
-      std::cout << "Right now: " << std::put_time(local_time, "%Y-%m-%d %H:%M:%S") << '\n';
-      local_time->tm_hour = hour;
-      local_time->tm_min = minute;
-      local_time->tm_sec = second;
-      std::time_t target_time = std::mktime(local_time);
-      local_time->tm_mday += 1;
-      target_time = std::mktime(local_time);
-      std::tm* target_tm = std::localtime(&target_time);
-      std::cout << "Ending at: " << std::put_time(target_tm, "%Y-%m-%d %H:%M:%S") << '\n';
-      std::cout << "Will take: " << std::difftime(target_time, now) << " seconds\n";
-      std::this_thread::sleep_until(std::chrono::system_clock::from_time_t(target_time));
-    }
+    std::chrono::system_clock::time_point timePoint;
 
-    static std::string add_zero(uint8_t value) {
-      return (value < 10 ? "0" : "") + std::to_string(value);
-    }
-
-    // I wouldn't change them directly
-    uint8_t day;
-    uint8_t month;
-    uint8_t year; // Year since 1900 (had 21st century wouldn't fit into uint8_t)
-    uint8_t hour;
-    uint8_t minute;
-    uint8_t second;
+    TimeStamp() {update();}
 
     void update() {
       /*
-        Apply current time data into all attributes of
-        instances.
+        Update the time point to the current time.
+        Example:
+          TimeStamp now;
+          now.update();
+          // now.timePoint is updated to the current time
       */
-      std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-      std::time_t currentTime = std::chrono::system_clock::to_time_t(now);
-      struct tm* timeinfo = std::localtime(&currentTime);
-      day = timeinfo->tm_mday;
-      month = timeinfo->tm_mon + 1;
-      year = timeinfo->tm_year; // Year since 1900
-      hour = timeinfo->tm_hour;
-      minute = timeinfo->tm_min;
-      second = timeinfo->tm_sec;
+      timePoint = std::chrono::system_clock::now();
     }
-
-    std::string to_str() const {
+    std::string asStr() const {
       /*
-        Convert to string (YYYY-MM-DD HH:MM:SS)
+        Convert the time point to (lighter form of ) the ISO 8601
+        format (YYYY-MM-DDTHH:MM:SSZ).
+        Example:
+          TimeStamp now;
+          // now.to_iso() = "2023-10-01 12:34:56"
       */
-      return add_zero(day) + '-' +
-      add_zero(month) + '-' +
-      std::to_string(year + 1900) + ' ' +
-      add_zero(hour) + ':' +
-      add_zero(minute) + ':' +
-      add_zero(second);
+      std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
+      return (std::stringstream() << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S")).str();
     }
 
-    int64_t diff_in_s(TimeStamp& other) const {
+    static void sleep_until(TimeStamp untilPoint) {
       /*
-        Calculate the difference in seconds
-        Note:
-          This is nowhere near accurate, but
-          should be enough for most cases.
+        Sleep until the given time point.
+        Example:
+          cslib::TimeStamp::sleep_until(cslib::TimeStamp());
+          // Sleeps until the current time
       */
-      int64_t diff = 0;
-      diff += (year - other.year) * 365 * 24 * 60 * 60;
-      diff += (month - other.month) * 30 * 24 * 60 * 60;
-      diff += (day - other.day) * 24 * 60 * 60;
-      diff += (hour - other.hour) * 60 * 60;
-      diff += (minute - other.minute) * 60;
-      diff += (second - other.second);
-      return diff;
+      MAKE_SURE(untilPoint.timePoint > std::chrono::system_clock::now());
+      std::this_thread::sleep_until(untilPoint.timePoint);
     }
-
-    TimeStamp() {update();}
-    TimeStamp(uint8_t day, uint8_t month, uint8_t year,
-              uint8_t hour, uint8_t minute, uint8_t second) :
-              day(day), month(month), year(year), hour(hour),
-              minute(minute), second(second) {}
   };
 
 
@@ -642,9 +667,9 @@ namespace cslib {
     // Wrapper around std::filesystem::path
 
     #ifdef _WIN32
-      static constexpr char PATH_SEPARATOR = '\\';
+      static MACRO PATH_SEPARATOR = '\\';
     #else
-      static constexpr char PATH_SEPARATOR = '/';
+      static MACRO PATH_SEPARATOR = '/';
     #endif
 
     std::filesystem::path isAt; 
@@ -725,8 +750,9 @@ namespace cslib {
       std::chrono::system_clock::time_point timePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
       std::time_t cftime = std::chrono::system_clock::to_time_t(timePoint);
       struct tm* timeinfo = std::localtime(&cftime);
-      return TimeStamp(timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year,
-                       timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
+      TimeStamp ts;
+      ts.timePoint = std::chrono::system_clock::from_time_t(std::mktime(timeinfo));
+      return ts;
     }
     void move_to(VirtualPath moveTo) {
       /*
@@ -758,6 +784,28 @@ namespace cslib {
       MAKE_SURE(!std::filesystem::exists(willBecome));
       std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
+    }
+    bool operator==(VirtualPath other) const {
+      /*
+        Compare two VirtualPath instances.
+        Example:
+          VirtualPath path1("/gitstuff/cslib/cslib.h++");
+          VirtualPath path2("/gitstuff/cslib/cslib.h++");
+          bool equal = (path1 == path2);
+          // equal = true;
+      */
+      return this->isAt == other.isAt;
+    }
+    bool operator!=(VirtualPath other) const {
+      /*
+        Compare two VirtualPath instances.
+        Example:
+          VirtualPath path1("/gitstuff/cslib/cslib.h++");
+          VirtualPath path2("/gitstuff/cslib/cslib.h++");
+          bool notEqual = (path1 != path2);
+          // notEqual = false;
+      */
+      return !(*this == other);
     }
   };
 
@@ -880,117 +928,11 @@ namespace cslib {
 
 
   // Namespaces
-  namespace FileParsing {
-    /*
-      Tools for parsing files and converting them to different formats.
-    */
-
-    std::string char_to_intstr(char c) {
-      /*
-        Takes a char and converts it to the number it
-        is on the ASCII table as string.
-        Example:
-          char c = 'A';
-          std::string str = char_to_intstring(c);
-          // str = "65"
-      */
-      return std::to_string(static_cast<int>(c));
-    }
-
-
-    std::string convert_filedata_to_intarray(std::string filePath) {
-      /*
-        Takes a string and converts it to a string of integers.
-        Example:
-          std::string filePath = "/file.txt";
-          // The file contains "Hi"
-          std::string intarray = convert_filedata_to_intarray(filePath);
-          // intarray = "{72,105}"
-      */
-
-      std::string result = "{";
-      for (char c : File(filePath).content())
-        result += char_to_intstr(c) + ",";
-      if (result.back() == ',') result.pop_back();
-      result += "}";
-      return result;
-    }
-
-
-    void create_file_from_intarray(std::string filePath, std::string intarray /*ptr to int array*/) {
-      /*
-        This function takes a string and creates a file from it.
-        Example:
-          std::string filePath = "/file.txt";
-          const char intarray[] = {72,105};
-          create_file_from_intarray(filePath, intarray);
-          // The file contains "Hi"
-      */
-
-      MAKE_SURE(!std::filesystem::exists(filePath));
-
-      std::string fileContentAsStr(intarray);
-      fileContentAsStr = fileContentAsStr.substr(0, fileContentAsStr.find(filePath)); // Quick fix for the filePath being at the end of the file
-
-      std::ofstream file(filePath);
-      MAKE_SURE(file.is_open());
-      MAKE_SURE(file.good());
-      file << fileContentAsStr;
-    }
-
-
-    File constexpr_file(std::string headerDefinition, std::string targetFile) {
-      /*
-        Function reads a file, converts it's content to a string of integers,
-        and writes it into an header file with constexpr char headerFileName[].
-        Example:
-          constexpr_file("my_header", "my_file.txt");
-          // my_header.h contains:
-          // constexpr char my_header[] = {72,105};
-      */
-
-      File constructorOfThisCheckForErrors(targetFile);
-      MAKE_SURE(!std::filesystem::exists(headerDefinition + ".h"));
-
-      // Check for illegal characters
-      for (char c : headerDefinition)
-        switch (c) {
-          case 'a': case 'b': case 'c': case 'd': case 'e':
-          case 'f': case 'g': case 'h': case 'i': case 'j':
-          case 'k': case 'l': case 'm': case 'n': case 'o':
-          case 'p': case 'q': case 'r': case 's': case 't':
-          case 'u': case 'v': case 'w': case 'x': case 'y':
-          case 'z': case 'A': case 'B': case 'C': case 'D':
-          case 'E': case 'F': case 'G': case 'H': case 'I':
-          case 'J': case 'K': case 'L': case 'M': case 'N':
-          case 'O': case 'P': case 'Q': case 'R': case 'S':
-          case 'T': case 'U': case 'V': case 'W': case 'X':
-          case 'Y': case 'Z': case '_': case '0': case '1':
-          case '2': case '3': case '4': case '5': case '6':
-          case '7': case '8': case '9':
-            break;
-          default:
-            THROW_HERE("Header definition '" + headerDefinition + "' contains illegal characters");
-        }
-
-    std::ofstream headerFile(headerDefinition + ".h");
-    MAKE_SURE(headerFile.is_open());
-    MAKE_SURE(headerFile.good());
-
-    headerFile << "constexpr char " << headerDefinition << "[] = ";
-    headerFile << convert_filedata_to_intarray(targetFile) << ";";
-
-    return File(headerDefinition + ".h");
-   }
-  };
-
-
-
   namespace TinySTL {
     // The stl is good but sometimes you need something smaller
 
     template <typename T>
-    class Optional { public: // TODO: Look into it further
+    class Optional { public: // TODO: Look into it further. Might not be necessary
       /*
         A small optional class that can hold a value or be empty.
         Example:
@@ -1189,127 +1131,4 @@ namespace cslib {
       }
     };
   };
-
-
-
-
-  // Unique namespaces
-  #if (__has_include("/usr/bin/lrztar"))
-  namespace LRZTAR { // TODO: Check https://github.com/ckolivas/lrzip for lrzdir
-    /*
-      Compress and decompress stuff using LRZip
-      Important note:
-        At compression, it matters how the path is specified. lrztar will
-        also contain all the parent paths of the source directory. So
-        if you specify the path as "/home/user/docs", the compressed file
-        will contain the parent directories "home" and "user" as empty
-        directories as well. Example:
-        /home (literally only user directory)
-         └ user (also just the docs directory)
-            └ docs (contains the files)
-              ├ what ever you put in here
-              └ ...
-        I haven't found a way to change this. If you want to compress a
-        directory, make it inside the same directory as the executable.
-        This doesn't matter for decompression. Decompression also acts
-        differently. To be sure, decompress within the same directory
-        as the binary and the compressed file.
-    */
-
-    MACRO LRZTAR_VIEW_CLI = "lrzcat \"{FILEPATH}\" | tar -tv";
-    MACRO LRZTAR_COMPRESS_CLI = "lrztar -z ";
-    MACRO LRZTAR_DECOMPRESS_CLI = "lrztar -d ";
-    MACRO LRZTAR_EXTENSION = ".tar.lrz";
-    Out lrztarOut("[LRZTAR by cslib]: ", Out::_CYAN);
-
-
-    void print_lrztar_content(File sourceFile) {
-      /*
-        Print the content of a tar.lrz file.
-        Example:
-          print_lrztar_content("my_dir.tar.lrz");
-          // Prints the content of my_dir.tar.lrz
-      */
-
-      std::string command = format(LRZTAR_VIEW_CLI, {{"FILEPATH", sourceFile.asStr()}}); // lrzcat "my_dir.tar.lrz" | tar -tv
-      cslib::sh_call(command);
-    }
-
-
-    File compress(Folder sourceDir) {
-      /*
-        Compress a directory into a tar.lrz file. A tar.lrz file will be
-        created next the executable. The sourceDir will not be deleted.
-        Example:
-          File compressed = compress("docs");
-          // docs.tar.lrz is created in workspace
-        Note: If sourceDir is deleted, instances of it will be invalid
-        and cause a crash if accessed.
-      */
-
-      MAKE_SURE(sourceDir.location.parent_path().locationAsStr == std::filesystem::current_path().string());
-
-      std::string willBecome = sourceDir.location.filename() + LRZTAR_EXTENSION; // docs + .tar.lrz
-      MAKE_SURE(!std::filesystem::exists(willBecome));
-
-      cslib::sh_call(str(LRZTAR_COMPRESS_CLI) + " \"" + sourceDir.location.filename() + "\""); // lrztar -z docs
-
-      return File(willBecome);
-    }
-    File compress(Folder sourceDir, Folder putIn) {
-      /*
-        Compress a directory into a tar.lrz file. The sourceDir will be deleted.
-        Example:
-          File compressed = compress_and_move("docs", "/root/backups");
-          // docs.tar.lrz is created in workspace and moved to /root/backups
-      */
-
-      std::string wouldBecome = putIn.asStr() + VirtualPath::PATH_SEPARATOR + sourceDir.location.filename() + LRZTAR_EXTENSION;
-      MAKE_SURE(!std::filesystem::exists(wouldBecome));
-
-      compress(sourceDir).location.move_to(putIn.location);
-
-      return File(wouldBecome); // Check for existence again with constructor
-    }
-
-
-    Folder decompress(File sourceFile) {
-      /*
-        Decompress a tar.lrz file. Folder is located in workspace
-        Example:
-          Folder decompressed = decompress("docs.tar.lrz");
-          // docs is created in workspace
-      */
-
-      MAKE_SURE(sourceFile.location.parent_path().locationAsStr == std::filesystem::current_path().string());
-
-      std::string sourceName = sourceFile.asStr(); // docs.tar.lrz
-      MAKE_SURE(sourceName.substr(sourceName.length() - str(LRZTAR_EXTENSION).length()) == LRZTAR_EXTENSION);
-      /*
-        .extension() wouldn't recognize the .tar in .tar.lrz as part of the extension
-      */
-
-      std::string willBecome = sourceName.substr(0, sourceName.length() - str(LRZTAR_EXTENSION).length()); // Remove ".tar.lrz"
-      MAKE_SURE(!std::filesystem::exists(willBecome))
-
-      cslib::sh_call(str(LRZTAR_DECOMPRESS_CLI) + " \"" + sourceName + "\""); // lrztar -d "docs.tar.lrz"
-      return Folder(willBecome);
-    }
-    Folder decompress(File sourceFile, Folder putIn) {
-      /*
-        Decompress a tar.lrz file. The sourceFile will be deleted.
-        Example:
-          Folder decompressed = decompress_and_move("docs.tar.lrz", "/root/backups");
-          // docs is created in workspace and moved to /root/backups
-      */
-
-      std::string willBecome = putIn.asStr() + VirtualPath::PATH_SEPARATOR + sourceFile.location.filename().substr(0, sourceFile.location.filename().length() - str(LRZTAR_EXTENSION).length());
-      MAKE_SURE(!std::filesystem::exists(willBecome));
-
-      Folder ex = decompress(sourceFile);
-      ex.location.move_to(putIn.location);
-      return Folder(willBecome);
-    }
-  };
-  #endif // __has_include("httplib.h")
 } // namespace cslib

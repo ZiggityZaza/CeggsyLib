@@ -71,16 +71,18 @@ namespace cslib {
 
 
 
-  void clear_console(uint8_t lines = 0) {
+  void clear_console() {
     /*
       Print so many new lines that the text before is gone
       Example:
         clear_console();
-        // prints 100 new lines
+        // clears console and moves cursor to the top
     */
-    for (uint8_t i = 0; i < lines; ++i)
-      std::cout << '\n';
-    std::cout << std::flush;
+    #ifdef _WIN32
+      sh_call("cls");
+    #else
+      sh_call("clear");
+    #endif
   }
 
 
@@ -91,9 +93,9 @@ namespace cslib {
       Example:
         // get_env("PATH") is "/usr/local/bin" depending on the system
     */
-    std::string env = getenv(var.c_str());
-    MAKE_SURE(!env.empty());
-    return env;
+    char* envCStr = getenv(var.c_str());
+    MAKE_SURE(envCStr != NULL);
+    return std::string(envCStr);
   }
 
 
@@ -126,7 +128,7 @@ namespace cslib {
 
 
   template <typename T>
-  std::string str(T value) {
+  std::string to_str(T value) {
     /*
       Tries to find the correct function to convert T to
       string.
@@ -191,7 +193,7 @@ namespace cslib {
 
 
 
-  std::string to_upper(std::string str) {
+  std::string upper(std::string str) {
     /*
       This function takes a string and converts it to uppercase.
       Example:
@@ -202,7 +204,7 @@ namespace cslib {
       c = std::toupper(c);
     return str;
   }
-  std::string to_lower(std::string str) {
+  std::string lower(std::string str) {
     /*
       Same as above but to lowercase
       Example:
@@ -297,9 +299,9 @@ namespace cslib {
 
 
 
-  std::map<std::string, std::map<std::string, std::string>> parse_ini(std::string iniFile) {
+  std::map<std::string, std::map<std::string, std::string>> quick_parse_ini(std::string iniFile) {
     /*
-      Parses an INI file. Returns a map of sections and their key-value pairs.
+      Opens and parses an INI file. Returns a map of sections and their key-value pairs.
       Note:
         Function tolerates a lot of errors.
     */
@@ -416,7 +418,7 @@ namespace cslib {
         Note:
           Flushed because bad experience with threading etc.
       */
-      std::cout << colorCode << prefix << RESET << msg << std::flush;
+      std::cout << colorCode << prefix << _RESET << msg << std::flush;
       if (OUT_WRITE)
         write_into() << prefix << msg << std::flush;
       return proxy;
@@ -430,7 +432,6 @@ namespace cslib {
       return input;
     }
   };
-  inline Out cslibOut("[Custom Library++]: ", Out::_BLACK); // Out channel for this lib
 
 
 
@@ -451,7 +452,7 @@ namespace cslib {
       */
       std::time_t now = std::time(nullptr);
       std::tm* local_time = std::localtime(&now);
-      cslibOut << "Right now: " << std::put_time(local_time, "%Y-%m-%d %H:%M:%S") << '\n';
+      std::cout << "Right now: " << std::put_time(local_time, "%Y-%m-%d %H:%M:%S") << '\n';
       local_time->tm_hour = hour;
       local_time->tm_min = minute;
       local_time->tm_sec = second;
@@ -459,8 +460,8 @@ namespace cslib {
       local_time->tm_mday += 1;
       target_time = std::mktime(local_time);
       std::tm* target_tm = std::localtime(&target_time);
-      cslibOut << "Ending at: " << std::put_time(target_tm, "%Y-%m-%d %H:%M:%S") << '\n';
-      cslibOut << "Will take: " << std::difftime(target_time, now) << " seconds\n";
+      std::cout << "Ending at: " << std::put_time(target_tm, "%Y-%m-%d %H:%M:%S") << '\n';
+      std::cout << "Will take: " << std::difftime(target_time, now) << " seconds\n";
       std::this_thread::sleep_until(std::chrono::system_clock::from_time_t(target_time));
     }
 
@@ -638,115 +639,74 @@ namespace cslib {
 
 
   class VirtualPath { public:
-    /*
-      std::filesystem is very chunky and not very documented, so
-      this class is a smaller wrapper around it. Memory efficiency
-      is clearly favored over speed.
-      Important Note:
-        - std::string is 1 byte but linux/windows/macOS allow
-          utf-8 characters in paths. This class doesn't support
-          utf-8 characters and assumes all paths are ASCII.
-    */
+    // Wrapper around std::filesystem::path
 
-    static MACRO PATH_SEPARATOR = '/';
+    #ifdef _WIN32
+      static constexpr char PATH_SEPARATOR = '\\';
+    #else
+      static constexpr char PATH_SEPARATOR = '/';
+    #endif
 
-    enum Type : char {
-      File = 'F',
-      Directory = 'D',
-    };
+    std::filesystem::path isAt; 
 
-    std::string locationAsStr;
-
-    VirtualPath(std::string where) : locationAsStr(where) {
+    VirtualPath() = default;
+    VirtualPath(std::string where) : isAt(std::filesystem::canonical(where)) {
       /*
         Constructor that takes a string and checks if it's a valid path.
         Notes:
           - If path is relative, it will be converted to an absolute path.
           - If path is empty, you will crash.
-          - To unify path separators across instances, all backslashes
-            are converted to forward slashes.
-          - Main folder ('/') is not tolerated as a path.
+          - Make sure to use the correct path separator for platform.
       */
 
-      if (where.back() == '\\' or where.back() == '/')
-        where.pop_back();
-
-      MAKE_SURE(!where.empty());
-      if (where.find('\\') == std::string::npos and where.find('/') == std::string::npos) // If path is directly in the working dir
-        where = std::filesystem::current_path().string() + "\\" + where;
-      for (char& c : where)
-        if (c == '\\') c = PATH_SEPARATOR;
-
-      MAKE_SURE(std::filesystem::exists(where));
-      locationAsStr = std::filesystem::absolute(where).string();
+      #ifdef _WIN32
+        MAKE_SURE(where.find('/') == std::string::npos);
+      #else
+        MAKE_SURE(where.find('\\') == std::string::npos);
+      #endif
     }
-    VirtualPath(std::string where, Type shouldBe) : VirtualPath(where) {
+    VirtualPath(std::string where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
       /*
         Same as above, but checks if the path is of a specific type.
+        Example:
+          VirtualPath path("/gitstuff/cslib/cslib.h++", std::filesystem::file_type::regular);
+          // Throws if path is not a regular file
       */
-      MAKE_SURE(type() == shouldBe);
+      MAKE_SURE(this->type() == shouldBe);
     }
 
-    std::string operator[](uint8_t index) const {
+    std::filesystem::file_type type() const {
       /*
-        Grab a specific parent path from the route
-        to the current element.
+        Returns the type of the path.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
-          std::string parent = path[1];
-          // parent = "cslib"
+          std::filesystem::file_type type = path.type();
+          // type = std::filesystem::file_type::regular
       */
-      #ifdef _WIN32
-        return separate(locationAsStr, PATH_SEPARATOR).at(index);
-      #endif
-      #ifdef __linux__
-        return separate(locationAsStr.substr(1), PATH_SEPARATOR).at(index); // Remove leading /
-      #endif
+      return std::filesystem::status(isAt).type();
     }
-    Type type() const {
+    VirtualPath parent() const {
       /*
-        Enum file-type of this instance.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          VirtualPath::Type type = path.type();
-          // type = VirtualPath::File
-      */
-      if (std::filesystem::is_directory(locationAsStr)) return Directory;
-      else if (std::filesystem::is_regular_file(locationAsStr)) return File;
-      else THROW_HERE("Path '" + locationAsStr + "' is of unknown type");
-      return Directory; // To make the compiler happy
-    }
-    std::string filename() const {
-      /*
-        Filename of this instance, including the extension.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          std::string filename = path.filename();
-          // filename = "cslib.h++"
-      */
-      return std::filesystem::path(locationAsStr).filename().string();
-    }
-    VirtualPath parent_path() const {
-      /*
-        Parent path of this instance.
+        Returns the parent path of the path.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
           VirtualPath parent = path.parent_path();
-          // parent = "/gitstuff/cslib" (instance of VirtualPath)
+          // parent = "/gitstuff/cslib"
       */
-      if (locationAsStr.find_last_of(PATH_SEPARATOR) == std::string::npos) THROW_HERE("Path has no parent");
-      return VirtualPath(std::filesystem::path(locationAsStr).parent_path().string());
+      if (isAt.parent_path().empty()) THROW_HERE("Path has no parent");
+      return VirtualPath(isAt.parent_path().string());
     }
-    uint8_t depth() const {
+    size_t depth() const {
       /*
-        Number of elements that is required to reach
-        this element from disk.
+        Returns the depth of the path.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
-          uint8_t depth = path.depth();
-          // depth = 2
+          size_t depth = path.depth();
+          // depth = 2 (because there are 2 directories before the file)
       */
-      return separate(locationAsStr, PATH_SEPARATOR).size() - 1; // -1 for the last element
+
+
+      return separate(isAt.string(), PATH_SEPARATOR).size() - 1; // -1 for the last element
     }
     TimeStamp last_modified() const {
       /*
@@ -761,14 +721,13 @@ namespace cslib {
           couldn't find a usable way to get the last modified date
           of a file. Copilot suggested this and it works.
       */
-      std::filesystem::file_time_type ftime = std::filesystem::last_write_time(locationAsStr);
+      std::filesystem::file_time_type ftime = std::filesystem::last_write_time(isAt);
       std::chrono::system_clock::time_point timePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
       std::time_t cftime = std::chrono::system_clock::to_time_t(timePoint);
       struct tm* timeinfo = std::localtime(&cftime);
       return TimeStamp(timeinfo->tm_mday, timeinfo->tm_mon + 1, timeinfo->tm_year,
                        timeinfo->tm_hour, timeinfo->tm_min, timeinfo->tm_sec);
     }
-
     void move_to(VirtualPath moveTo) {
       /*
         Move this instance to a new location.
@@ -777,26 +736,27 @@ namespace cslib {
           path.move_to("/archive/cslib.h++");
           // path = "/archive/cslib.h++"
       */
-      MAKE_SURE(moveTo.type() == Directory);
-      MAKE_SURE(moveTo.locationAsStr != this->locationAsStr);
-      std::string willBecome = moveTo.locationAsStr + str(PATH_SEPARATOR) + this->filename();
+      MAKE_SURE(moveTo.type() == std::filesystem::file_type::directory);
+      MAKE_SURE(moveTo.isAt != this->isAt);
+      std::string willBecome = moveTo.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
       MAKE_SURE(!std::filesystem::exists(willBecome));
-      std::filesystem::rename(this->locationAsStr, willBecome);
-      this->locationAsStr = cslib::VirtualPath(willBecome).locationAsStr; // Apply changes
+      std::filesystem::rename(this->isAt, willBecome);
+      this->isAt = VirtualPath(willBecome).isAt; // Apply changes
     }
-    VirtualPath copy_to(std::string where) const {
+    VirtualPath copy_into(VirtualPath targetDict) const {
       /*
-        Copy this instance to a new location.
+        Copies this instance to a new location and returns
+        a new VirtualPath instance pointing to the copied file.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
-          path.copy_to("/shared/cslib.h++");
-          // path = "/shared/cslib.h++"
+          VirtualPath copy = path.copy_into("/shared/cslib.h++");
+          // copy = "/shared/cslib.h++"
       */
-      MAKE_SURE(!where.empty());
-      std::string willBecome = std::filesystem::absolute(where).string();
-      willBecome += str(PATH_SEPARATOR) + filename();
+      MAKE_SURE(targetDict.type() == std::filesystem::file_type::directory);
+      MAKE_SURE(targetDict.isAt != this->isAt);
+      std::string willBecome = targetDict.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
       MAKE_SURE(!std::filesystem::exists(willBecome));
-      std::filesystem::copy(locationAsStr, willBecome);
+      std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
     }
   };
@@ -806,13 +766,23 @@ namespace cslib {
   class File { public:
     /*
       Child class of VirtualPath that represents a file.
+      Example:
+        File file("/gitstuff/cslib/cslib.h++");
+        std::string content = file.content();
+        // content = "Hello World"
     */
 
-    VirtualPath location; // Evade inheritance hell
+    VirtualPath is; // Composition over inheritance to evade direct inheritance
 
-    File(std::string where) : location(where, VirtualPath::File) {}
-
-    std::string asStr() const {return location.locationAsStr;}
+    File(std::string where) : is(where, std::filesystem::file_type::regular) {
+      /*
+        Constructor that takes a string and checks if it's a valid file path.
+        Notes:
+          - If path is relative, it will be converted to an absolute path.
+          - If path is empty, you will crash.
+          - Make sure to use the correct path separator for platform.
+      */
+    }
 
     std::string content() const {
       /*
@@ -825,15 +795,14 @@ namespace cslib {
           - File is opened in binary mode to avoid issues with
             line endings and encoding.
           - File is closed automatically when the function returns.
-          - Big ass files (like 200 gbs or more) wouldn't fit into
-            the RAM. This function doesn't handle such cases. I'll work on it.
+          - Files that wouldn't fit into the RAM are not handled.
       */
-      std::ifstream file(asStr(), std::ios::binary);
+
+      std::ifstream file(is.isAt, std::ios::binary);
       MAKE_SURE(file.is_open());
       MAKE_SURE(file.good());
       return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
-
     std::string extension() const {
       /*
         Get the file extension.
@@ -842,38 +811,41 @@ namespace cslib {
           std::string ext = file.extension();
           // ext = ".h++"
       */
-      return std::filesystem::path(asStr()).extension().string();
+      return is.isAt.extension().string();
     }
-
-    size_t size() const {
+    size_t bytes() const {
       /*
         Get the file size in bytes.
         Example:
           File file("/gitstuff/cslib/cslib.h++");
-          size_t size = file.size();
+          size_t size = file.bytes();
           // size = ~400.000 bytes (50000 characters with each 1 byte)
       */
-      return std::filesystem::file_size(asStr());
+      return std::filesystem::file_size(is.isAt);
     }
   };
 
 
 
-  class Folder { public: // FIXME: All attributes must be changed manually upon changes
+  class Folder { public:
     /*
       Child class of VirtualPath that represents a folder and
       everything in it.
     */
 
-    using EntryType = std::variant<Folder, File>;
-    std::deque<EntryType> content;
-    VirtualPath location;
+    std::vector<VirtualPath> content;
+    VirtualPath is;
 
-    Folder(std::string where) : location(where, cslib::VirtualPath::Directory) {
+    Folder(std::string where) : is(where, std::filesystem::file_type::directory) {
+      /*
+        Constructor that takes a string and checks if it's a valid folder path.
+        Notes:
+          - If path is relative, it will be converted to an absolute path.
+          - If path is empty, you will crash.
+          - Make sure to use the correct path separator for platform.
+      */
       update();
     }
-
-    std::string asStr() const {return location.locationAsStr;}
 
     void update() {
       /*
@@ -885,23 +857,24 @@ namespace cslib {
       */
       content.clear();
 
-      for (std::filesystem::directory_entry entry : std::filesystem::directory_iterator(asStr()))
-        if (entry.is_directory())
-          content.push_back(Folder(entry.path().string()));
-        else if (entry.is_regular_file())
-          content.push_back(File(entry.path().string()));
-        else THROW_HERE("Bizarre entry type: " + entry.path().string()); // Syslinks and other stuff are not supported
+      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
+        content.push_back(VirtualPath(entry.path().string()));
 
       content.shrink_to_fit();
     }
 
-
-    // TODO: Search functions
-    Folder& search_folder();
-    File& search_file();
-    Folder& recursive_search_folder();
-    File& recursive_search_file();
-    std::string tree();
+    // Search functions
+    bool isIn(VirtualPath path) const {
+      /*
+        Check if the path is in the folder.
+        Example:
+          Folder folder("/gitstuff/cslib");
+          VirtualPath path("/gitstuff/cslib/cslib.h++");
+          bool inFolder = folder.isIn(path);
+          // inFolder = true
+      */
+      return std::find(content.begin(), content.end(), path) != content.end();
+    }
   };
 
 
@@ -1118,7 +1091,7 @@ namespace cslib {
 
 
 
-    template <uint8_t N = 4>
+    template <uint8_t N>
     class String { public:
       /*
         Static fixed size string. It can hold up to N characters and
@@ -1194,7 +1167,7 @@ namespace cslib {
         data.push_back({key, value});
       }
       V& at(K key) {
-        for (Node node : data)
+        for (Node& node : data)
           if (node.key == key)
             return node.value;
         THROW_HERE("Key not found");
@@ -1202,7 +1175,7 @@ namespace cslib {
       V& operator[](K key) {
         return at(key);
       }
-      bool contains(K key) {
+      bool contains(K key) const {
         for (Node node : data)
           if (node.key == key)
             return true;
@@ -1338,212 +1311,5 @@ namespace cslib {
       return Folder(willBecome);
     }
   };
-  #endif
-
-
-
-  #if __has_include("httplib.h")
-  namespace LocalServer { // [Not tested]
-    /*
-      A simple local server using the httplib library.
-      It can be used to serve files and handle requests.
-      Using library:
-        github.com/yhirose/cpp-httplib
-    */
-
-    MACRO PORT = 8080;
-    MACRO CONTENT_TYPE = "text/plain";
-    MACRO LISTEN_TO = "0.0.0.0";
-
-
-    std::function<void(const httplib::Request&, httplib::Response&)> errorHandler;
-    std::map<std::string, std::function<void(const httplib::Request&, httplib::Response&)>> postRoutes;
-    std::map<std::string, std::function<void(const httplib::Request&, httplib::Response&)>> getRoutes;
-    /*
-      A map of routes and their corresponding handlers.
-      The key is the route and the value is the handler function.
-      Example:
-        routes["/"] = [](const httplib::Request& req, httplib::Response& res) {
-          res.set_content("Hello World", CONTENT_TYPE);
-        };
-      Keep in mind that after the server is started, new routes are ignored.
-      The server will only listen to the routes that were added before.
-      Note: the '/' in the route is needed.
-    */
-
-
-
-    std::map<std::string, std::string> extract_params(std::string reqAsStr) {
-      /*
-        Extracts the parameters from the request and returns them as a map.
-        The key is the parameter name and the value is the parameter value.
-      */
-      std::map<std::string, std::string> params;
-      std::string paramsStr = reqAsStr.substr(reqAsStr.find('?') + 1); // +1 to skip the '?'
-      for (std::string param : separate(paramsStr, '&')) {
-        std::string key = param.substr(0, param.find('='));
-        std::string value = param.substr(param.find('=') + 1); // +1 to skip the '='
-        params.insert({key, value});
-      }
-      return params;
-    }
-
-
-
-    bool serverIsRunning = false;
-    class Server { public:
-      // Wrapper around the httplib::Server with RAII
-
-
-      httplib::Server server;
-
-      Server() {
-        if (serverIsRunning)
-          THROW_HERE("Server is already running");
-        serverIsRunning = true;
-
-        for (auto [route, handler] : postRoutes) {
-          cslibOut << "[Server] Adding POST route: '" << route << "'";
-          server.Post(route, handler);
-        }
-
-        for (auto [route, handler] : getRoutes) {
-          cslibOut << "[Server] Adding GET route: '" << route << "'";
-          server.Get(route, handler);
-        }
-
-        cslibOut << "[Server] Adding error handler";
-        if (errorHandler != nullptr)
-          server.set_error_handler(errorHandler);
-        else
-          server.set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-            std::string answer = "Existing routes:\n";
-            answer += "GET:\n";
-            for (auto [route, handler] : getRoutes)
-              answer += route + "\n";
-            answer += "POST:\n";
-            for (auto [route, handler] : postRoutes)
-              answer += route + "\n";
-            answer += "Error: Route not found\n";
-            res.status = 404;
-            res.set_content(answer, CONTENT_TYPE);
-          });
-
-        cslibOut << "[Server] Listening on '" << LISTEN_TO << "' at port " << PORT;
-        server.listen(LISTEN_TO, PORT);
-      }
-    };
-
-
-
-    std::string literally_string(std::string str); // (not implemented yet)
-      /*
-        Converts the string to what it's literally is. Usuualy
-        used for external libraries that need the string in a specific format.
-        Example:
-          std::string str = "C:\\";
-          str = literally_string(str);
-          // str = "C:\\\\";
-      */
-    std::string relatively_string(std::string str); // (not implemented yet)
-      /*
-        Converts the string to what C++ would interpret it as.
-        Example:
-          std::string str = "C:\\\\";
-          str = relatively_string(str);
-          // str = "C:\\";
-      */
-
-
-
-    char decode(std::string s) {
-      /*
-        Decodes the character from a URL-safe format.
-        Example:
-          char c = "%20";
-          c = decode(c);
-          // c = ' '
-      */
-      MAKE_SURE(s.length() == 3);
-      MAKE_SURE(s.at(0) == '%');
-
-      if (s == "%20") return '\x20'; // Space
-      if (s == "%21") return '\x21'; // Exclamation mark
-      if (s == "%22") return '\x22'; // Double quote
-      if (s == "%23") return '\x23'; // Hash
-      if (s == "%24") return '\x24'; // Dollar sign
-      if (s == "%25") return '\x25'; // Percent sign
-      if (s == "%26") return '\x26'; // Ampersand
-      if (s == "%27") return '\x27'; // Single quote
-      if (s == "%28") return '\x28'; // Left parenthesis
-      if (s == "%29") return '\x29'; // Right parenthesis
-      if (s == "%2A") return '\x2A'; // Asterisk
-      if (s == "%2B") return '\x2B'; // Plus sign
-      if (s == "%2C") return '\x2C'; // Comma
-      if (s == "%2D") return '\x2D'; // Minus sign
-      if (s == "%2E") return '\x2E'; // Dot
-      if (s == "%2F") return '\x2F'; // Slash
-      if (s == "%3A") return '\x3A'; // Colon
-      if (s == "%3B") return '\x3B'; // Semicolon
-      if (s == "%3C") return '\x3C'; // Less than
-      if (s == "%3D") return '\x3D'; // Equals sign
-      if (s == "%3E") return '\x3E'; // Greater than
-      if (s == "%3F") return '\x3F'; // Question mark
-      if (s == "%40") return '\x40'; // At sign
-      if (s == "%5B") return '\x5B'; // Left square bracket
-      if (s == "%5C") return '\x5C'; // Backslash
-      if (s == "%5D") return '\x5D'; // Right square bracket
-      if (s == "%7B") return '\x7B'; // Left curly brace
-      if (s == "%7C") return '\x7C'; // Vertical bar
-      if (s == "%7D") return '\x7D'; // Right curly brace
-      if (s == "%7E") return '\x7E'; // Tilde
-
-      THROW_HERE("Invalid URL encoding");
-      return '\0'; // Invalid character
-    }
-    std::string encode(char s) {
-      /*
-        Encodes the character to a URL-safe format.
-        Example:
-          char c = ' ';
-          c = encode(c);
-          // c = "%20"
-      */
-      switch (s) {
-        case '\x20': return "%20"; // Space
-        case '\x21': return "%21"; // Exclamation mark
-        case '\x22': return "%22"; // Double quote
-        case '\x23': return "%23"; // Hash
-        case '\x24': return "%24"; // Dollar sign
-        case '\x25': return "%25"; // Percent sign
-        case '\x26': return "%26"; // Ampersand
-        case '\x27': return "%27"; // Single quote
-        case '\x28': return "%28"; // Left parenthesis
-        case '\x29': return "%29"; // Right parenthesis
-        case '\x2A': return "%2A"; // Asterisk
-        case '\x2B': return "%2B"; // Plus sign
-        case '\x2C': return "%2C"; // Comma
-        case '\x2D': return "%2D"; // Minus sign
-        case '\x2E': return "%2E"; // Dot
-        case '\x2F': return "%2F"; // Slash
-        case '\x3A': return "%3A"; // Colon
-        case '\x3B': return "%3B"; // Semicolon
-        case '\x3C': return "%3C"; // Less than
-        case '\x3D': return "%3D"; // Equals sign
-        case '\x3E': return "%3E"; // Greater than
-        case '\x3F': return "%3F"; // Question mark
-        case '\x40': return "%40"; // At sign
-        case '\x5B': return "%5B"; // Left square bracket
-        case '\x5C': return "%5C"; // Backslash
-        case '\x5D': return "%5D"; // Right square bracket
-        case '\x7B': return "%7B"; // Left curly brace
-        case '\x7C': return "%7C"; // Vertical bar
-        case '\x7D': return "%7D"; // Right curly brace
-        case '\x7E': return "%7E"; // Tilde
-        default: THROW_HERE("Invalid character '" + std::string(1, s) + "' for URL encoding");
-        return "";
-      }
-    }
-  };
   #endif // __has_include("httplib.h")
-};
+} // namespace cslib

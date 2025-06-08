@@ -24,18 +24,12 @@
 #include <map>
 
 
-
-#if __has_include("httplib.h")
-  #include "httplib.h"
-#endif
-
 #if __cplusplus < 202002L
   #error "Requires C++ >= 20"
 #endif
 
 
 
-// Note: Doxygen comments aren't supposed to be professional/technical. Only meant to make stuff readable.
 namespace cslib {
   // Jack of all trades (Helper functions and classes)
 
@@ -47,37 +41,21 @@ namespace cslib {
 
 
   void sleep(int ms) {
-    /*
-      This function takes a number and sleeps for that many milliseconds.
-      Example:
-        sleep(1000);
-        // Sleeps for 1 second
-    */
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   }
 
 
 
   void sh_call(std::string command) { // TODO: Fix blocking exit
-    /*
-      Executes a shell command
-      Example:
-        sh_call("echo Hello World");
-        // Prints "Hello World" to the console
-    */
+    // Blocking system call
     if (system(command.c_str()) != 0)
       THROW_HERE("Failed: " + command);
   }
 
 
-
+  
   void clear_console() {
-    /*
-      Print so many new lines that the text before is gone
-      Example:
-        clear_console();
-        // clears console and moves cursor to the top
-    */
+    // wipe previous output and move cursor to the top
     #ifdef _WIN32
       sh_call("cls");
     #else
@@ -87,27 +65,15 @@ namespace cslib {
 
 
 
+  
   template <typename Key, typename Container>
-  bool contains(Container container, Key key) {
-    /*
-      Checks if the container contains the key.
-      Example:
-        std::vector<int> vec = {1, 2, 3, 4, 5};
-        bool hasThree = contains(vec, 3);
-        // hasThree = true
-    */
-    return std::find(container.begin(), container.end(), key) != container.end();
+  bool contains(Container lookIn, Key lookFor) {
+    // does `container` contain `key`?
+    return std::find(lookIn.begin(), lookIn.end(), lookFor) != lookIn.end();
   }
   template <typename Containers>
   bool have_something_common(Containers c1, Containers c2) {
-    /*
-      Checks if two containers have something in common.
-      Example:
-        std::vector<int> vec1 = {1, 2, 3};
-        std::vector<int> vec2 = {3, 4, 5};
-        bool common = have_something_common(vec1, vec2);
-        // common = true
-    */
+    // do `c1` and `c2` contain similar keys?
     for (auto item : c1)
       if (contains(c2, item))
         return true;
@@ -117,11 +83,7 @@ namespace cslib {
 
 
   std::string get_env(std::string var) {
-    /*
-      Returns the value of the environment variable with that name.
-      Example:
-        // get_env("PATH") is "/usr/local/bin" depending on the system
-    */
+    // Get environment variable by name
     char* envCStr = getenv(var.c_str());
     MAKE_SURE(envCStr != NULL);
     return std::string(envCStr);
@@ -131,42 +93,122 @@ namespace cslib {
 
   std::vector<int> range(int start, int end) {
     /*
-      Start and end value and returns a vector of integers from
-      start to end (inclusive).
-      Example:
-        // range(1, 10) is {1, 2, 3, 4, 5, 6, 7, 8, 9, 10}
+      Simplified range function that takes two integers
+      and returns a vector of integers (inclusive)
     */
     std::vector<int> result;
-    if (start > end)
+    if (start > end) // reverse
       for (int i = start; i >= end; --i)
         result.push_back(i);
-    else if (start < end)
+    else if (start < end) // start to end
       for (int i = start; i <= end; ++i)
         result.push_back(i);
-    else
+    else // just start
       result.push_back(start);
     return result;
   }
   std::vector<int> range(int end) {
-    /*
-      Exact same as the function above, but with start = 0
-    */
+    // Exact same as the function above, but with `start = 0`
     return range(0, end);
+  }
+  template <int S>
+  consteval std::array<int, S> range() {
+    // Compile-time range function
+    std::array<int, S> result{};
+    for (int i = 0; i < S; ++i)
+      result[i] = i;
+    return result;
+  }
+  template <int S, int E>
+  consteval std::array<int, (E - S) + 1> range() {
+    // Compile-time range function (without reverse)
+    static_assert(E >= S, "End must be greater or equal to start");
+    std::array<int, (E - S) + 1> result{};
+    for (int i = S; i <= E; ++i)
+      result[i - S] = i;
+    return result;
+  }
+
+
+
+  float progress_bar(size_t currentStep, size_t stepsAmount, size_t visualLimit) {
+    /*
+      Simulate and calculate a progress bar based
+      on the amount of steps and the current step.
+      Returns the percentage of the progress bar.
+      Example:
+        int STEPS = 4;
+        for (int i : range(STEPS)) {
+          size_t prog = cslib::progress_bar(STEPS, i, 100);
+          // i = 0, prog = 0
+          // i = 1, prog = 25
+          // i = 2, prog = 50
+          // i = 3, prog = 75
+          // i = 4, prog = 100
+        }
+    */
+
+    MAKE_SURE(stepsAmount > 0);
+    MAKE_SURE(visualLimit >= stepsAmount);
+    MAKE_SURE(currentStep <= stepsAmount);
+
+    if (currentStep == stepsAmount)
+      return 100; // 100% when done
+    if (currentStep == 0)
+      return 0; // 0% when not started
+
+    return (currentStep * visualLimit) / stepsAmount;
+  }
+
+
+
+  void retry(std::function<void()> target, size_t retries, size_t delay = 0) {
+    /*
+      Retry a function up to `retries` times with a delay
+      of `delay` milliseconds between each retry.
+      Example:
+        cslib::retry([]() {
+          // Do something that might fail
+        });
+    */
+    MAKE_SURE(retries > 0);
+    for (int tried : range(retries)) {
+      try {
+        target(); // Try to execute the function
+        return; // If successful, exit the function
+      } catch (const std::exception& e) {
+        if (tried == retries - 1) {
+          // If this was the last retry, throw the exception
+          THROW_HERE("Failed after " + std::to_string(retries) + " retries: " + e.what());
+        }
+      }
+    }
+  }
+
+
+
+  std::vector<std::string> parse_cli_args(int argc, const char *const argv[]) {
+    /*
+      Parse command line arguments and return them as a vector of strings.
+      Example:
+        int main(int argc, char* argv[]) {
+          std::vector<std::string> args = cslib::parse_cli_args(argc, argv);
+          // args = {"program_name", "arg1", "arg2", ...}
+        }
+    */
+    std::vector<std::string> args;
+    for (int i : range(argc)) {
+      // Convert each argument to a string and add it to the vector
+      args.push_back(std::string(argv[i]));
+    }
+    return args;
   }
 
 
 
   template <typename T>
   std::string to_str(T value) {
-    /*
-      Tries to find the correct function to convert T to
-      string.
-      Example:
-        str = str(42);
-        // str = "42"
-        str = str("Hello World");
-        // str = "Hello World"
-    */
+    // Find the correct way to convert T to string
 
     // Try std::string(T) in string-like types
     if constexpr (std::is_same_v<T, std::string>)
@@ -193,24 +235,15 @@ namespace cslib {
 
   std::string shorten_end(std::string str, size_t maxLength) {
     /*
-      Cut and add "..." to the end of the string if it's too long
-      Example:
-        str = "Hello World";
-        str = shorten_end(str, 5);
-        // str = "He..."
-        str = shorten_end(str, 300);
-        // str = "Hello World"
-        str = shorten_end(str, -1);
-        // because of size_t underflow, maxLength is 2^64
+      Trim and add "..." to the end of the string
+      if it exceeds `maxLength`.
     */
     if (str.length() > maxLength)
       str = str.substr(0, maxLength - 3) + "..."; // 3 for "..."
     return str;
   }
   std::string shorten_begin(std::string str, size_t maxLength) {
-    /*
-      Same as above but cutting the beginning of the string
-    */
+    // Same as above but trimming the beginning of the string
     if (str.length() > maxLength)
       str = "..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
     return str;
@@ -244,12 +277,7 @@ namespace cslib {
 
 
   std::string escape_str(std::string str) {
-    /*
-      Escape special characters in a string.
-      Example:
-        str = escape_str("Hello \"World\"");
-        // str becomes literally "Hello \"World\""
-    */
+    // Escape special characters in a string.
     std::string result;
     for (char c : str) {
       switch (c) {
@@ -264,12 +292,7 @@ namespace cslib {
     return result;
   }
   std::string unescape_str(std::string str) {
-    /*
-      Unescape special characters in a string.
-      Example:
-        str = unescape_str("Hello \\\"World\\\"");
-        // str becomes "Hello "World"" on binary level
-    */
+    // Unescape special characters in a string.
     std::string result;
     bool escape = false; // Flag to check if the next character is escaped
     for (char c : str) {
@@ -327,7 +350,6 @@ namespace cslib {
   std::vector<std::string> separate(std::string str, char delimiter) {
     /*
       Create vector of strings from a string by separating it with a delimiter.
-
       Note:
         - If between two delimiters is nothing, an empty string is added to the vector
         - If the string ends with a delimiter, an empty string is added to the vector
@@ -360,8 +382,6 @@ namespace cslib {
     /*
       This function takes a minimum and maximum value and returns a random
       number between them (inclusive).
-      Example:
-        // roll_dice(1, 6) is 1, 2, 3, 4, 5 or 6
     */
 
     if (min > max) std::swap(min, max);
@@ -377,9 +397,8 @@ namespace cslib {
 
   std::map<std::string, std::map<std::string, std::string>> quick_parse_ini(std::string iniFile) {
     /*
-      Opens and parses an INI file. Returns a map of sections and their key-value pairs.
-      Note:
-        Function tolerates a lot of errors.
+      Opens and parses an INI file. Returns a map of sections
+      and their key-value pairs.
     */
 
     MAKE_SURE(std::filesystem::exists(iniFile));
@@ -430,7 +449,7 @@ namespace cslib {
 
     static MACRO OUT_WRITE = false;
     static MACRO OUT_WRITE_TO_FILE = "cslib.log";
-    static std::ofstream& write_into() {
+    static std::ofstream& log() {
       /*
         This function returns a reference to the output file stream.
         It creates the file if it doesn't exist and opens it in append mode.
@@ -459,7 +478,7 @@ namespace cslib {
     /*
       Some C developers like to 'enjoy' the legacy design
       of C and claim commonly used names for their own
-      libraries. The '_' prefix is used to avoid name
+      headers. The '_' prefix is used to avoid name
       collisions with C code.
     */
 
@@ -474,7 +493,7 @@ namespace cslib {
       Proxy& operator<<(T msg) {
         std::cout << msg << std::flush;
         if (OUT_WRITE)
-          write_into() << msg << std::flush;
+          log() << msg << std::flush;
         return *this;
       }
     };
@@ -496,7 +515,7 @@ namespace cslib {
       */
       std::cout << colorCode << prefix << _RESET << msg << std::flush;
       if (OUT_WRITE)
-        write_into() << prefix << msg << std::flush;
+        log() << prefix << msg << std::flush;
       return proxy;
     }
 
@@ -504,7 +523,7 @@ namespace cslib {
       std::string input;
       std::getline(std::cin, input);
       if (OUT_WRITE)
-        write_into() << input << std::flush;
+        log() << input << std::flush;
       return input;
     }
   };
@@ -512,9 +531,7 @@ namespace cslib {
 
 
   class TimeStamp { public:
-    /*
-      A wrapper around std::chrono that I actually understand.
-    */
+    // A wrapper around std::chrono that I have control over
 
     std::chrono::system_clock::time_point timePoint;
 
@@ -522,7 +539,7 @@ namespace cslib {
 
     void update() {
       /*
-        Update the time point to the current time.
+        Update the time point to the current time
         Example:
           TimeStamp now;
           now.update();
@@ -532,23 +549,15 @@ namespace cslib {
     }
     std::string asStr() const {
       /*
-        Convert the time point to (lighter form of ) the ISO 8601
-        format (YYYY-MM-DDTHH:MM:SSZ).
-        Example:
-          TimeStamp now;
-          // now.to_iso() = "2023-10-01 12:34:56"
+        Convert the time point to (lighter form of) ISO 8601
+        in format YYYY-MM-DD HH:MM:SS).
       */
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
       return (std::stringstream() << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S")).str();
     }
 
     static void sleep_until(TimeStamp untilPoint) {
-      /*
-        Sleep until the given time point.
-        Example:
-          cslib::TimeStamp::sleep_until(cslib::TimeStamp());
-          // Sleeps until the current time
-      */
+      // Sleep until the given time point.
       MAKE_SURE(untilPoint.timePoint > std::chrono::system_clock::now());
       std::this_thread::sleep_until(untilPoint.timePoint);
     }
@@ -679,9 +688,8 @@ namespace cslib {
       /*
         Constructor that takes a string and checks if it's a valid path.
         Notes:
-          - If path is relative, it will be converted to an absolute path.
-          - If path is empty, you will crash.
-          - Make sure to use the correct path separator for platform.
+          - If where is relative, it will be converted to an absolute path.
+          - If where is empty, you will crash.
       */
 
       #ifdef _WIN32
@@ -691,12 +699,7 @@ namespace cslib {
       #endif
     }
     VirtualPath(std::string where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
-      /*
-        Same as above, but checks if the path is of a specific type.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++", std::filesystem::file_type::regular);
-          // Throws if path is not a regular file
-      */
+      // Same as above, but checks if the path is of a specific type.
       MAKE_SURE(this->type() == shouldBe);
     }
 
@@ -708,6 +711,7 @@ namespace cslib {
           std::filesystem::file_type type = path.type();
           // type = std::filesystem::file_type::regular
       */
+      MAKE_SURE(!isAt.empty());
       return std::filesystem::status(isAt).type();
     }
     VirtualPath parent() const {
@@ -718,6 +722,7 @@ namespace cslib {
           VirtualPath parent = path.parent_path();
           // parent = "/gitstuff/cslib"
       */
+      MAKE_SURE(!isAt.empty());
       if (isAt.parent_path().empty()) THROW_HERE("Path has no parent");
       return VirtualPath(isAt.parent_path().string());
     }
@@ -729,8 +734,7 @@ namespace cslib {
           size_t depth = path.depth();
           // depth = 2 (because there are 2 directories before the file)
       */
-
-
+      MAKE_SURE(!isAt.empty());
       return separate(isAt.string(), PATH_SEPARATOR).size() - 1; // -1 for the last element
     }
     TimeStamp last_modified() const {
@@ -755,13 +759,8 @@ namespace cslib {
       return ts;
     }
     void move_to(VirtualPath moveTo) {
-      /*
-        Move this instance to a new location.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          path.move_to("/archive/cslib.h++");
-          // path = "/archive/cslib.h++"
-      */
+      // Move this instance to a new location and apply changes.
+      MAKE_SURE(!this->isAt.empty() and !moveTo.isAt.empty());
       MAKE_SURE(moveTo.type() == std::filesystem::file_type::directory);
       MAKE_SURE(moveTo.isAt != this->isAt);
       std::string willBecome = moveTo.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
@@ -773,11 +772,8 @@ namespace cslib {
       /*
         Copies this instance to a new location and returns
         a new VirtualPath instance pointing to the copied file.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          VirtualPath copy = path.copy_into("/shared/cslib.h++");
-          // copy = "/shared/cslib.h++"
       */
+      MAKE_SURE(!this->isAt.empty() and !targetDict.isAt.empty());
       MAKE_SURE(targetDict.type() == std::filesystem::file_type::directory);
       MAKE_SURE(targetDict.isAt != this->isAt);
       std::string willBecome = targetDict.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
@@ -786,25 +782,9 @@ namespace cslib {
       return VirtualPath(willBecome);
     }
     bool operator==(VirtualPath other) const {
-      /*
-        Compare two VirtualPath instances.
-        Example:
-          VirtualPath path1("/gitstuff/cslib/cslib.h++");
-          VirtualPath path2("/gitstuff/cslib/cslib.h++");
-          bool equal = (path1 == path2);
-          // equal = true;
-      */
       return this->isAt == other.isAt;
     }
     bool operator!=(VirtualPath other) const {
-      /*
-        Compare two VirtualPath instances.
-        Example:
-          VirtualPath path1("/gitstuff/cslib/cslib.h++");
-          VirtualPath path2("/gitstuff/cslib/cslib.h++");
-          bool notEqual = (path1 != path2);
-          // notEqual = false;
-      */
       return !(*this == other);
     }
   };
@@ -822,30 +802,16 @@ namespace cslib {
 
     VirtualPath is; // Composition over inheritance to evade direct inheritance
 
-    File(std::string where) : is(where, std::filesystem::file_type::regular) {
-      /*
-        Constructor that takes a string and checks if it's a valid file path.
-        Notes:
-          - If path is relative, it will be converted to an absolute path.
-          - If path is empty, you will crash.
-          - Make sure to use the correct path separator for platform.
-      */
-    }
+    File() = default;
+    File(std::string where) : is(where, std::filesystem::file_type::regular) {}
 
     std::string content() const {
       /*
         Read the content of the file and return it as a string.
-        Example:
-          File file("/gitstuff/cslib/cslib.h++");
-          std::string content = file.content();
-          // content = "Hello World"
         Note:
-          - File is opened in binary mode to avoid issues with
-            line endings and encoding.
-          - File is closed automatically when the function returns.
-          - Files that wouldn't fit into the RAM are not handled.
+          - No error-handling for files larger than available memory
       */
-
+      MAKE_SURE(!is.isAt.empty());
       std::ifstream file(is.isAt, std::ios::binary);
       MAKE_SURE(file.is_open());
       MAKE_SURE(file.good());
@@ -859,6 +825,7 @@ namespace cslib {
           std::string ext = file.extension();
           // ext = ".h++"
       */
+      MAKE_SURE(!is.isAt.empty());
       return is.isAt.extension().string();
     }
     size_t bytes() const {
@@ -869,6 +836,7 @@ namespace cslib {
           size_t size = file.bytes();
           // size = ~400.000 bytes (50000 characters with each 1 byte)
       */
+      MAKE_SURE(!is.isAt.empty());
       return std::filesystem::file_size(is.isAt);
     }
   };
@@ -884,6 +852,7 @@ namespace cslib {
     std::vector<VirtualPath> content;
     VirtualPath is;
 
+    Folder() = default;
     Folder(std::string where) : is(where, std::filesystem::file_type::directory) {
       /*
         Constructor that takes a string and checks if it's a valid folder path.
@@ -903,25 +872,25 @@ namespace cslib {
           folder.update();
           // folder.content() = {File("rl"), File("a36m"), Folder("cslib")}
       */
+      MAKE_SURE(!is.isAt.empty());
       content.clear();
-
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
         content.push_back(VirtualPath(entry.path().string()));
-
       content.shrink_to_fit();
     }
 
     // Search functions
     bool isIn(VirtualPath path) const {
       /*
-        Check if the path is in the folder.
+        Check if `path` exists in this folder.
         Example:
           Folder folder("/gitstuff/cslib");
           VirtualPath path("/gitstuff/cslib/cslib.h++");
           bool inFolder = folder.isIn(path);
           // inFolder = true
       */
-      return std::find(content.begin(), content.end(), path) != content.end();
+      MAKE_SURE(!is.isAt.empty() and !path.isAt.empty());
+      return is == path.parent();
     }
   };
 
@@ -1036,9 +1005,9 @@ namespace cslib {
     template <uint8_t N>
     class String { public:
       /*
-        Static fixed size string. It can hold up to N characters and
-        is only null-terminated when the string isn't full. If it is,
-        the size-limit acts as a terminator.
+        Static fixed size string. It can hold up to `N` characters and is
+        only null-terminated when cslib::String's capacity isn't maxed.
+        If it is, the size-limit acts as a terminator.
         Example:
           String<2> str("Hi");
           // str = {'H', 'i'}
@@ -1048,6 +1017,8 @@ namespace cslib {
           // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
           for something else earlier but ignored after null-termination)}
       */
+
+      static_assert(N > 0, "String size must be greater than 0");
 
       char data[N] = {'\0'};
 

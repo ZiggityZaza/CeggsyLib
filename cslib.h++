@@ -155,9 +155,9 @@ namespace cslib {
     if (stepsAmount == 0)
       THROW_HERE("Steps amount cannot be 0");
     if (visualLimit < stepsAmount)
-      THROW_HERE("Visual limit cannot be less than the amount of steps");
+      THROW_HERE("Visual limit (" + to_str(visualLimit) + ") cannot be less than the amount of steps (" + to_str(stepsAmount) + ")");
     if (currentStep > stepsAmount)
-      THROW_HERE("Current step cannot be greater than the amount of steps");
+      THROW_HERE("Current step (" + to_str(currentStep) + ") cannot be greater than the amount of steps (" + to_str(stepsAmount) + ")");
 
     if (currentStep == stepsAmount)
       return 100; // 100% when done
@@ -207,7 +207,7 @@ namespace cslib {
     std::vector<std::string> args;
     for (int i : range(argc)) {
       // Convert each argument to a string and add it to the vector
-      args.push_back(std::string(argv[i]));
+      args.emplace_back(argv[i]);
     }
     return args;
   }
@@ -250,7 +250,7 @@ namespace cslib {
       str = str.substr(0, maxLength - 3) + "..."; // 3 for "..."
     return str;
   }
-  std::string shorten_begin(std::string str, size_t maxLength) {
+  SHARED std::string shorten_begin(std::string str, size_t maxLength) {
     // Same as above but trimming the beginning of the string
     if (str.length() > maxLength)
       str = "..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
@@ -325,36 +325,6 @@ namespace cslib {
 
 
 
-  SHARED std::string format(std::string str, std::map<std::string, std::string> replacements) {
-    /*
-      String and a map of replacements keys to replaces keys with
-      the corresponding values.
-      Example:
-        str = "Hello {name}, welcome to {place}";
-        replacements = {
-          {"name", "John Money"}
-        };
-        str = format(str, replacements);
-        // str = "Hello John Money, welcome to {place}"
-    */
-
-    // Iterate over all possible keys to replace
-    for (auto [key, value] : replacements) {
-
-      std::string placeholder = "{" + key + "}";
-      size_t pos = str.find(placeholder);
-
-      while (pos != std::string::npos) {
-        str.replace(pos, placeholder.length(), value);
-        pos = str.find(placeholder, pos + value.length());
-      }
-    }
-
-    return str;
-  }
-
-
-
   SHARED std::vector<std::string> separate(std::string str, char delimiter) {
     /*
       Create vector of strings from a string by separating it with a delimiter.
@@ -423,7 +393,8 @@ namespace cslib {
 
     for (std::string line : separate(iniContent, '\n')) {
 
-      if (line.empty() or line.at(0) == ';') continue; // Skip empty lines and comments
+      if (line.empty() or line.at(0) == ';')
+        continue;
 
       // Parse sections
       if (line.at(0) == '[') {
@@ -443,11 +414,19 @@ namespace cslib {
         std::string value = line.substr(pos + 1);
         if (value.empty())
           THROW_HERE("Empty value for key '" + key + "' in INI file: '" + line + "'");
-        result.at(currentSection)[key] = value;
+        result.at(currentSection).insert({key, value});
       }
     }
 
     return result;
+  }
+
+
+
+  SHARED std::string in() {
+    std::string input;
+    std::getline(std::cin, input);
+    return input;
   }
 
 
@@ -460,7 +439,6 @@ namespace cslib {
         cslib::Out error("Error: ", cslib::Out::Color::RED);
         error << "Something went wrong";
     */
-
     static FIXED char Black[] = "\033[30m";
     static FIXED char Red[] = "\033[31m";
     static FIXED char Green[] = "\033[32m";
@@ -470,32 +448,16 @@ namespace cslib {
     static FIXED char Cyan[] = "\033[36m";
     static FIXED char White[] = "\033[37m";
     static FIXED char Reset[] = "\033[0m";
-
     std::string prefix;
-
     Out(std::string pref, std::string color) {
       prefix = color;
       prefix += pref;
     }
-    Out(Out&& becomes) : prefix(std::move(becomes.prefix)) {}
-    Out& operator=(Out&& becomes) {
-      if (this == &becomes)
-        prefix = std::move(becomes.prefix);
-      return *this;
-    }
-    Out(const Out&) = delete;
-    Out& operator=(const Out&) = delete;
-
     template <typename T>
     std::ostream& operator<<(const T& msg) {
       // Same as std::cout << msg, but with color and prefix
       std::cout << prefix << Reset << ' ' << msg;
       return std::cout;
-    }
-    static std::string in() {
-      std::string input;
-      std::getline(std::cin, input);
-      return input;
     }
   };
 
@@ -503,20 +465,8 @@ namespace cslib {
 
   class TimeStamp { public:
     // A wrapper around std::chrono that I have control over
-
     std::chrono::system_clock::time_point timePoint;
-
     TimeStamp() {update();}
-    TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
-    TimeStamp(TimeStamp&& becomes) : timePoint(std::move(becomes.timePoint)) {}
-    TimeStamp& operator=(TimeStamp&& becomes) {
-      if (this != &becomes)
-        timePoint = std::move(becomes.timePoint);
-      return *this;
-    }
-    TimeStamp(const TimeStamp&) = delete;
-    TimeStamp& operator=(const TimeStamp&) = delete;
-
     void update() {
       timePoint = std::chrono::system_clock::now();
     }
@@ -528,7 +478,6 @@ namespace cslib {
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
       return (std::stringstream() << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S")).str();
     }
-
     static void sleep_until(TimeStamp untilPoint) {
       // Sleep until the given time point.
       if (untilPoint.timePoint <= std::chrono::system_clock::now())
@@ -548,19 +497,9 @@ namespace cslib {
         std::cout << "Time taken: " << benchmark.elapsed_ms() << " ms\n";
     */
     std::chrono::high_resolution_clock::time_point startTime;
-
     Benchmark() {
       startTime = std::chrono::high_resolution_clock::now();
     }
-    Benchmark(Benchmark&& becomes) : startTime(std::move(becomes.startTime)) {}
-    Benchmark& operator=(Benchmark&& becomes) {
-      if (this != &becomes)
-        startTime = std::move(becomes.startTime);
-      return *this;
-    }
-    Benchmark(const Benchmark&) = delete; // Disable copy constructor
-    Benchmark& operator=(const Benchmark&) = delete; // Disable copy assignment operator
-
     size_t elapsed_ms() {
       return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
     }
@@ -604,19 +543,9 @@ namespace cslib {
     }
     VirtualPath(std::string where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
       // Same as above, but checks if the path is of a specific type.
-      if (this->type() != shouldBe) {
-        THROW_HERE("Path '" + where + "' is not of type " + std::to_string(static_cast<int>(shouldBe)) + ". It is " + std::to_string(static_cast<int>(this->type())));
-      }
+      if (this->type() != shouldBe)
+        THROW_HERE("Path '" + where + "' of (" + to_str(static_cast<int>(this->type())) + ") should be a " + to_str(static_cast<int>(shouldBe)));
     }
-    VirtualPath(VirtualPath&& becomes) : isAt(std::move(becomes.isAt)) {}
-    VirtualPath& operator=(VirtualPath&& becomes) {
-      if (this != &becomes) {
-        isAt = std::move(becomes.isAt);
-      }
-      return *this;
-    }
-    VirtualPath(const VirtualPath&) = delete;
-    VirtualPath& operator=(const VirtualPath&) = delete;
 
     std::filesystem::file_type type() const {
       /*
@@ -640,7 +569,8 @@ namespace cslib {
       */
       if (isAt.empty())
         THROW_HERE("Uninitialized path");
-      if (isAt.parent_path().empty()) THROW_HERE("Path has no parent");
+      if (isAt.parent_path().empty())
+        THROW_HERE("Path has no parent");
       return VirtualPath(isAt.parent_path().string());
     }
     size_t depth() const {
@@ -665,8 +595,8 @@ namespace cslib {
         Note:
           Once more, special thanks to copilot. I scurried
           through the std::filesystem documentation and
-          couldn't find a usable way to get the last modified date
-          of a file. Copilot suggested this and it works.
+          couldn't find a usable way to get the last modified
+          date of a file.
       */
       std::filesystem::file_time_type ftime = std::filesystem::last_write_time(isAt);
       std::chrono::system_clock::time_point timePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
@@ -711,12 +641,6 @@ namespace cslib {
       std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
     }
-    bool operator==(VirtualPath other) const {
-      return this->isAt == other.isAt;
-    }
-    bool operator!=(VirtualPath other) const {
-      return !(this->isAt == other.isAt);
-    }
   };
 
 
@@ -729,20 +653,10 @@ namespace cslib {
         std::string content = file.content();
         // content = "Hello World"
     */
-
-    VirtualPath is; // Composition over inheritance to evade direct inheritance
+    VirtualPath is; // Composition over inheritance
 
     File() = default;
     File(std::string where) : is(where, std::filesystem::file_type::regular) {}
-    File(File&& becomes) : is(std::move(becomes.is)) {}
-    File& operator=(File&& becomes) {
-      if (this != &becomes) {
-        is = std::move(becomes.is);
-      }
-      return *this;
-    }
-    File(const File&) = delete;
-    File& operator=(const File&) = delete; // Disable copy assignment operator
 
     std::string content() const {
       /*
@@ -760,13 +674,7 @@ namespace cslib {
       return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
     std::string extension() const {
-      /*
-        Get the file extension.
-        Example:
-          File file("/gitstuff/cslib/cslib.h++");
-          std::string ext = file.extension();
-          // ext = ".h++"
-      */
+      // Get file extension with dot 
       if (is.isAt.empty())
         THROW_HERE("Uninitialized path");
       return is.isAt.extension().string();
@@ -777,7 +685,7 @@ namespace cslib {
         Example:
           File file("/gitstuff/cslib/cslib.h++");
           size_t size = file.bytes();
-          // size = ~400.000 bytes (50000 characters with each 1 byte)
+          // size = ~40.000 bytes
       */
       if (is.isAt.empty())
         THROW_HERE("Uninitialized path");
@@ -792,32 +700,11 @@ namespace cslib {
       Child class of VirtualPath that represents a folder and
       everything in it.
     */
-
     std::vector<VirtualPath> content;
     VirtualPath is;
 
     Folder() = default;
-    Folder(std::string where) : is(where, std::filesystem::file_type::directory) {
-      /*
-        Constructor that takes a string and checks if it's a valid folder path.
-        Notes:
-          - If path is relative, it will be converted to an absolute path.
-          - If path is empty, you will crash.
-          - Make sure to use the correct path separator for platform.
-      */
-      update();
-    }
-    Folder(Folder&& becomes) : content(std::move(becomes.content)), is(std::move(becomes.is)) {}
-    Folder& operator=(Folder&& becomes) {
-      if (this != &becomes) {
-        content = std::move(becomes.content);
-        is = std::move(becomes.is);
-      }
-      return *this;
-    }
-    Folder(const Folder&) = delete; // Disable copy constructor
-    Folder& operator=(const Folder&) = delete; // Disable copy assignment operator
-
+    Folder(std::string where) : is(where, std::filesystem::file_type::directory) {update();}
 
     void update() {
       /*
@@ -833,21 +720,6 @@ namespace cslib {
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
         content.push_back(VirtualPath(entry.path().string()));
       content.shrink_to_fit();
-    }
-
-    // Search functions
-    bool isIn(VirtualPath path) const {
-      /*
-        Check if `path` exists in this folder.
-        Example:
-          Folder folder("/gitstuff/cslib");
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          bool inFolder = folder.isIn(path);
-          // inFolder = true
-      */
-      if (is.isAt.empty() or path.isAt.empty())
-        THROW_HERE("Uninitialized path");
-      return is == path.parent();
     }
   };
 

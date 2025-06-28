@@ -1,18 +1,24 @@
 // LICENSE: ☝️🤓
-#pragma once // Prevent multiple inclusions of this header file
 
 // Including every single header that might ever be needed
 #include <condition_variable>
 #include <initializer_list>
 #include <unordered_map>
+#include <string_view>
 #include <stop_token>
 #include <filesystem>
 #include <functional>
+#include <stdexcept>
 #include <algorithm>
 #include <iostream> // Already contains many libraries
 #include <optional>
 #include <fstream>
 #include <variant>
+#include <cstring>
+#include <cstdint>
+#include <cstddef>
+#include <cctype>
+#include <cstdio>
 #include <random>
 #include <thread>
 #include <vector>
@@ -24,11 +30,17 @@
 #include <map>
 
 
+#pragma once
+/*
+  Include this header file only once pwease. No support for
+  linking and stuff.
+  Prevent multiple inclusions of this header file
+*/
+
+
 #if __cplusplus < 202002L
   #error "Requires C++ >= 20"
 #endif
-
-
 
 
 
@@ -36,28 +48,98 @@ namespace cslib {
   // Jack of all trades (Helper functions and classes)
 
   // Other
+  using wstr_t = std::wstring;
+  using o_str_t = std::string;
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
-  #define THROW_HERE(reason) throw std::runtime_error(std::string(__FILE__) + ":" + std::to_string(__LINE__) + std::string(": \033[1m") + reason + "\033[0m");
+  #define EXIT_HERE(reason) { \
+    std::wcout << __FILE__ << L':' << __LINE__ << L": " << reason << std::endl; \
+    std::exit(EXIT_FAILURE); \
+  }
+  MACRO Black = L"\033[30m";
+  MACRO Red = L"\033[31m";
+  MACRO Green = L"\033[32m";
+  MACRO Yellow = L"\033[33m";
+  MACRO Blue = L"\033[34m";
+  MACRO Magenta = L"\033[35m";
+  MACRO Cyan = L"\033[36m";
+  MACRO White = L"\033[37m";
+  MACRO Reset = L"\033[0m";
+  #ifdef _WIN32
+    MACRO PATH_DELIMITER = L'\\';
+  #else
+    MACRO PATH_DELIMITER = L'/';
+  #endif
 
 
 
-  SHARED void sleep(int ms) {
+  // Functions
+  void sleep(size_t ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   }
 
 
 
-  SHARED void sh_call(std::string command) { // TODO: Fix blocking exit
+  // Find the correct way to convert T to (w-)string
+  o_str_t to_str(const char *const value) {
+    return o_str_t(value);
+  }
+  wstr_t to_wstr(const wchar_t *const value) {
+    return wstr_t(value);
+  }
+  wstr_t to_wstr(const char *const value) {
+    return wstr_t(value, value + std::strlen(value));
+  }
+  o_str_t to_str(char value) {
+    return o_str_t(1, value);
+  }
+  wstr_t to_wstr(wchar_t value) {
+    return wstr_t(1, value);
+  }
+  wstr_t to_wstr(char value) {
+    return wstr_t(1, static_cast<wchar_t>(value));
+  }
+  o_str_t to_str(wstr_t value) {
+    return o_str_t(value.begin(), value.end());
+  }
+  o_str_t to_str(std::string_view value) {
+    return o_str_t(value.data());
+  }
+  wstr_t to_wstr(std::wstring_view value) {
+    return wstr_t(value.data());
+  }
+  wstr_t to_wstr(std::string_view value) {
+    return wstr_t(value.data(), value.data() + value.size());
+  }
+  template <std::integral T>
+  o_str_t to_str(T value) {
+    return o_str_t(std::to_string(value));
+  }
+  template <std::integral T>
+  wstr_t to_wstr(T value) {
+    return wstr_t(std::to_wstring(value));
+  }
+  template <std::floating_point T>
+  o_str_t to_str(T value) {
+    return o_str_t(std::to_string(value));
+  }
+  template <std::floating_point T>
+  wstr_t to_wstr(T value) {
+    return wstr_t(std::to_wstring(value));
+  }
+
+
+
+  void sh_call(o_str_t command) {
     // Blocking system call
     if (system(command.c_str()) != 0)
-      THROW_HERE("Failed: " + command);
+      EXIT_HERE(L"Failed: " + to_wstr(command));
   }
 
 
   
-  SHARED void clear_console() {
+  void clear_console() {
     // wipe previous output and move cursor to the top
     #ifdef _WIN32
       sh_call("cls");
@@ -67,15 +149,14 @@ namespace cslib {
   }
 
 
-
   
   template <typename Key, typename Container>
-  SHARED bool contains(Container lookIn, Key lookFor) {
+  bool contains(Container& lookIn, Key& lookFor) {
     // does `container` contain `key`?
     return std::find(lookIn.begin(), lookIn.end(), lookFor) != lookIn.end();
   }
   template <typename Containers>
-  SHARED bool have_something_common(Containers c1, Containers c2) {
+  bool have_something_common(Containers& c1, Containers& c2) {
     // do `c1` and `c2` contain similar keys?
     for (auto item : c1)
       if (contains(c2, item))
@@ -85,17 +166,17 @@ namespace cslib {
 
 
 
-  SHARED std::string get_env(std::string var) {
+  o_str_t get_env(o_str_t var) {
     // Get environment variable by name
     char* envCStr = getenv(var.c_str());
     if (envCStr == NULL)
-      THROW_HERE("Environment variable '" + var + "' not found");
-    return std::string(envCStr);
+      EXIT_HERE(L"Environment variable '" + to_wstr(var) + L"' not found");
+    return o_str_t(envCStr);
   }
 
 
 
-  SHARED std::vector<int> range(int start, int end) {
+  std::vector<int> range(int start, int end) {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (inclusive)
@@ -111,65 +192,35 @@ namespace cslib {
       result.push_back(start);
     return result;
   }
-  SHARED std::vector<int> range(int end) {
+  std::vector<int> range(int end) {
     // Exact same as the function above, but with `start = 0`
     return range(0, end);
   }
-  template <int S>
-  SHARED consteval std::array<int, S> range() {
-    // Compile-time range function
-    std::array<int, S> result{};
-    for (int i = 0; i < S; ++i)
-      result[i] = i;
-    return result;
-  }
-  template <int S, int E>
-  SHARED consteval std::array<int, (E - S) + 1> range() {
-    // Compile-time range function (without reverse)
-    static_assert(E >= S, "End must be greater or equal to start");
-    std::array<int, (E - S) + 1> result{};
-    for (int i = S; i <= E; ++i)
-      result[i - S] = i;
-    return result;
-  }
-
-
-
-  SHARED float progress_bar(size_t currentStep, size_t stepsAmount, size_t visualLimit) {
+  std::vector<size_t> range(size_t start, size_t end) {
     /*
-      Simulate and calculate a progress bar based
-      on the amount of steps and the current step.
-      Returns the percentage of the progress bar.
+      Same as above, but with size_t.
       Example:
-        int STEPS = 4;
-        for (int i : range(STEPS)) {
-          size_t prog = cslib::progress_bar(STEPS, i, 100);
-          // i = 0, prog = 0
-          // i = 1, prog = 25
-          // i = 2, prog = 50
-          // i = 3, prog = 75
-          // i = 4, prog = 100
-        }
+        cslib::range(0, 10); // {0, 1, 2, ..., 10}
     */
-
-    if (stepsAmount == 0)
-      THROW_HERE("Steps amount cannot be 0");
-    if (visualLimit < stepsAmount)
-      THROW_HERE("Visual limit (" + to_str(visualLimit) + ") cannot be less than the amount of steps (" + to_str(stepsAmount) + ")");
-    if (currentStep > stepsAmount)
-      THROW_HERE("Current step (" + to_str(currentStep) + ") cannot be greater than the amount of steps (" + to_str(stepsAmount) + ")");
-
-    if (currentStep == stepsAmount)
-      return 100; // 100% when done
-    if (currentStep == 0)
-      return 0; // 0% when not started
-
-    return (currentStep * visualLimit) / stepsAmount;
+    std::vector<size_t> result;
+    if (start > end) // reverse
+      for (size_t i = start; i >= end; --i)
+        result.push_back(i);
+    else if (start < end) // start to end
+      for (size_t i = start; i <= end; ++i)
+        result.push_back(i);
+    else // just start
+      result.push_back(start);
+    return result;
+  }
+  std::vector<size_t> range(size_t end) {
+    // Same as above, but with `start = 0`
+    return range(size_t(0), end);
   }
 
 
 
-  SHARED void retry(std::function<void()> target, size_t retries, size_t delay = 0) {
+  void retry(std::function<void()> target, size_t retries, size_t delay = 0) {
     /*
       Retry a function up to `retries` times with a delay
       of `delay` milliseconds between each retry.
@@ -179,138 +230,99 @@ namespace cslib {
         });
     */
     if (retries == 0)
-      THROW_HERE("Retries must be greater than 0");
-    for (int tried : range(retries)) {
+      EXIT_HERE(L"Retries must be greater than 0");
+    for (size_t tried : range(retries)) {
       try {
         target(); // Try to execute the function
         return; // If successful, exit the function
       } catch (const std::exception& e) {
         if (tried == retries - 1) {
           // If this was the last retry, throw the exception
-          THROW_HERE("Failed after " + std::to_string(retries) + " retries: " + e.what());
+          EXIT_HERE(L"Failed after " + to_wstr(retries) + L" retries: " + to_wstr(e.what()));
         }
       }
+      sleep(delay);
     }
   }
 
 
 
-  SHARED std::vector<std::string> parse_cli_args(int argc, const char *const argv[]) {
-    /*
-      Parse command line arguments and return them as a vector of strings.
-      Example:
-        int main(int argc, char* argv[]) {
-          std::vector<std::string> args = cslib::parse_cli_args(argc, argv);
-          // args = {"program_name", "arg1", "arg2", ...}
-        }
-    */
-    std::vector<std::string> args;
-    for (int i : range(argc)) {
-      // Convert each argument to a string and add it to the vector
-      args.emplace_back(argv[i]);
-    }
+  std::vector<wstr_t> parse_cli_args(int argc, const char *const argv[]) {
+    // Parse command line arguments and return them as a vector of strings.
+    std::vector<wstr_t> args;
+    for (int i : range(argc - 1))
+      args.push_back(to_wstr(argv[i]));
     return args;
   }
 
 
 
-  template <typename T>
-  SHARED std::string to_str(T value) {
-    // Find the correct way to convert T to string
-
-    // Try std::string(T) in string-like types
-    if constexpr (std::is_same_v<T, std::string>)
-      return value;
-    else if constexpr (std::is_same_v<T, char*>)
-      return std::string(value);
-    else if constexpr (std::is_same_v<T, const char*>)
-      return std::string(value);
-    else if constexpr (std::is_same_v<T, char>)
-      return std::string(1, value);
-    else if constexpr (std::is_same_v<T, std::string_view>)
-      return std::string(value);
-
-    // Try std::to_string(T) in numbers
-    else if constexpr (std::is_integral_v<T> or std::is_floating_point_v<T>)
-      return std::to_string(value);
-
-    // Give up
-    THROW_HERE("Failed str conversion");
-    return "";
-  }
-
-
-
-  SHARED std::string shorten_end(std::string str, size_t maxLength) {
+  wstr_t shorten_end(wstr_t str, size_t maxLength) {
     /*
       Trim and add "..." to the end of the string
       if it exceeds `maxLength`.
     */
     if (str.length() > maxLength)
-      str = str.substr(0, maxLength - 3) + "..."; // 3 for "..."
+      str = str.substr(0, maxLength - 3) + L"..."; // 3 for "..."
     return str;
   }
-  SHARED std::string shorten_begin(std::string str, size_t maxLength) {
+  wstr_t shorten_begin(wstr_t str, size_t maxLength) {
     // Same as above but trimming the beginning of the string
     if (str.length() > maxLength)
-      str = "..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
+      str = L"..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
     return str;
   }
 
 
 
-  SHARED std::string upper(std::string str) {
+  wstr_t upper(wstr_t str) {
     /*
       This function takes a string and converts it to uppercase.
       Example:
         to_upper("csLib.h++");
         // is "CSLIB.H++"
     */
-    for (char& c : str)
-      c = std::toupper(c);
-    return str;
+    return std::transform(str.begin(), str.end(), str.begin(), ::toupper), str;
   }
-  SHARED std::string lower(std::string str) {
+  wstr_t lower(wstr_t str) {
     /*
-      Same as above but to lowercase
+      This function takes a string and converts it to lowercase.
       Example:
-        to_lower("CSLib.H++");
+        to_lower("csLib.h++");
         // is "cslib.h++"
     */
-    for (char& c : str)
-      c = std::tolower(c);
-    return str;
+    return std::transform(str.begin(), str.end(), str.begin(), ::tolower), str;
   }
 
 
 
-  SHARED std::string escape_str(std::string str) {
+  wstr_t escape_str(wstr_t str) {
     // Escape special characters in a string.
-    std::string result;
-    for (char c : str) {
+    wstr_t result;
+    for (wchar_t c : str) {
       switch (c) {
-        case '"': result += "\\\""; break;
-        case '\\': result += "\\\\"; break;
-        case '\n': result += "\\n"; break;
-        case '\r': result += "\\r"; break;
-        case '\t': result += "\\t"; break;
+        case L'"': result += L"\\\""; break;
+        case L'\\': result += L"\\\\"; break;
+        case L'\n': result += L"\\n"; break;
+        case L'\r': result += L"\\r"; break;
+        case L'\t': result += L"\\t"; break;
         default: result += c; break;
       }
     }
     return result;
   }
-  SHARED std::string unescape_str(std::string str) {
+  wstr_t unescape_str(wstr_t str) {
     // Unescape special characters in a string.
-    std::string result;
+    wstr_t result;
     bool escape = false; // Flag to check if the next character is escaped
-    for (char c : str) {
+    for (wchar_t c : str) {
       if (escape) {
         switch (c) {
-          case '"': result += '"'; break;
-          case '\\': result += '\\'; break;
-          case 'n': result += '\n'; break;
-          case 'r': result += '\r'; break;
-          case 't': result += '\t'; break;
+          case L'"': result += L'"'; break;
+          case L'\\': result += L'\\'; break;
+          case L'n': result += L'\n'; break;
+          case L'r': result += L'\r'; break;
+          case L't': result += L'\t'; break;
           default: result += c; break; // If not a special character, just add it
         }
         escape = false;
@@ -325,7 +337,7 @@ namespace cslib {
 
 
 
-  SHARED std::vector<std::string> separate(std::string str, char delimiter) {
+  std::vector<o_str_t> separate(o_str_t str, wchar_t delimiter) {
     /*
       Create vector of strings from a string by separating it with a delimiter.
       Note:
@@ -334,13 +346,38 @@ namespace cslib {
         - If delimiter is not found, the whole string is added to the vector
     */
 
-    std::vector<std::string> result;
-    std::string temp;
+    std::vector<o_str_t> result;
+    o_str_t temp;
 
-    if (str.empty() or delimiter == '\0')
+    if (str.empty() or delimiter == L'\0')
       return result;
 
-    for (char c : str) {
+    for (wchar_t c : str) {
+      if (c == delimiter) {
+        result.push_back(temp);
+        temp.clear();
+      } else {
+        temp += c;
+      }
+    }
+
+    result.push_back(temp);
+
+    return result;
+  }
+  std::vector<wstr_t> separate(wstr_t str, wchar_t delimiter) {
+    /*
+      Same as above, but for wide strings.
+      Example:
+        cslib::separate(L"Hello World", ' ') // {"Hello", "World"}
+    */
+    std::vector<wstr_t> result;
+    wstr_t temp;
+
+    if (str.empty() or delimiter == L'\0')
+      return result;
+
+    for (wchar_t c : str) {
       if (c == delimiter) {
         result.push_back(temp);
         temp.clear();
@@ -356,7 +393,7 @@ namespace cslib {
 
 
 
-  SHARED size_t roll_dice(size_t min, size_t max) {
+  size_t roll_dice(size_t min, size_t max) {
     /*
       This function takes a minimum and maximum value and returns a random
       number between them (inclusive).
@@ -373,59 +410,9 @@ namespace cslib {
 
 
 
-  SHARED std::map<std::string, std::map<std::string, std::string>> quick_parse_ini(std::string iniFile) {
-    /*
-      Opens and parses an INI file. Returns a map of sections
-      and their key-value pairs.
-    */
-
-    if (!std::filesystem::exists(iniFile))
-      THROW_HERE("INI file '" + iniFile + "' does not exist");
-
-    std::ifstream ini(iniFile);
-    if (!ini.is_open())
-      THROW_HERE("Failed to open INI file '" + iniFile + "'");
-
-    std::string iniContent((std::istreambuf_iterator<char>(ini)), std::istreambuf_iterator<char>());
-
-    std::map<std::string, std::map<std::string, std::string>> result;
-    std::string currentSection;
-
-    for (std::string line : separate(iniContent, '\n')) {
-
-      if (line.empty() or line.at(0) == ';')
-        continue;
-
-      // Parse sections
-      if (line.at(0) == '[') {
-        currentSection = line.substr(1, line.find(']') - 1); // Skip []
-        if (result.find(currentSection) == result.end()) // Avoid reloading
-          result.insert({currentSection, {}});
-      }
-
-      // Assign key-value pairs
-      else {
-        size_t pos = line.find('=');
-        if (pos == std::string::npos)
-          THROW_HERE("Invalid line in INI file: '" + line + "'");
-        std::string key = line.substr(0, pos);
-        if (key.empty())
-          THROW_HERE("Empty key in INI file: '" + line + "'");
-        std::string value = line.substr(pos + 1);
-        if (value.empty())
-          THROW_HERE("Empty value for key '" + key + "' in INI file: '" + line + "'");
-        result.at(currentSection).insert({key, value});
-      }
-    }
-
-    return result;
-  }
-
-
-
-  SHARED std::string in() {
-    std::string input;
-    std::getline(std::cin, input);
+  wstr_t in() {
+    wstr_t input;
+    std::getline(std::wcin, input);
     return input;
   }
 
@@ -439,25 +426,35 @@ namespace cslib {
         cslib::Out error("Error: ", cslib::Out::Color::RED);
         error << "Something went wrong";
     */
-    static FIXED char Black[] = "\033[30m";
-    static FIXED char Red[] = "\033[31m";
-    static FIXED char Green[] = "\033[32m";
-    static FIXED char Yellow[] = "\033[33m";
-    static FIXED char Blue[] = "\033[34m";
-    static FIXED char Magenta[] = "\033[35m";
-    static FIXED char Cyan[] = "\033[36m";
-    static FIXED char White[] = "\033[37m";
-    static FIXED char Reset[] = "\033[0m";
-    std::string prefix;
-    Out(std::string pref, std::string color) {
+    static void set_us_utf8_encoding() {
+      // Set all io-streaming globally to UTF-8 encoding
+
+      std::locale utf8_locale = std::locale("en_US.UTF-8");
+      if (utf8_locale.name() == "C" or utf8_locale.name() == "POSIX")
+        EXIT_HERE(L"UTF-8 locale not found. Please set the locale to UTF-8 in your system settings.");
+
+      std::locale::global(utf8_locale);
+      std::wcout.imbue(utf8_locale);
+      std::wcin.imbue(utf8_locale);
+      std::wclog.imbue(utf8_locale);
+      std::wcerr.imbue(utf8_locale);
+      std::cout.imbue(utf8_locale);
+      std::cin.imbue(utf8_locale);
+      std::clog.imbue(utf8_locale);
+      std::cerr.imbue(utf8_locale);
+    }
+    wstr_t prefix;
+    Out(wstr_t pref, wstr_t color = L"") {
       prefix = color;
       prefix += pref;
+      prefix += Reset;
+      prefix += L" ";
     }
     template <typename T>
-    std::ostream& operator<<(const T& msg) {
-      // Same as std::cout << msg, but with color and prefix
-      std::cout << prefix << Reset << ' ' << msg;
-      return std::cout;
+    std::wostream& operator<<(const T& msg) {
+      // Same as std::wcout << msg, but with color and prefix
+      std::wcout << prefix << msg;
+      return std::wcout;
     }
   };
 
@@ -470,7 +467,7 @@ namespace cslib {
     void update() {
       timePoint = std::chrono::system_clock::now();
     }
-    std::string asStr() const {
+    o_str_t asStr() const {
       /*
         Convert the time point to (lighter form of) ISO 8601
         in format YYYY-MM-DD HH:MM:SS).
@@ -478,10 +475,15 @@ namespace cslib {
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
       return (std::stringstream() << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S")).str();
     }
+    wstr_t asWstr() const {
+      // Same as above, but returns a wide string.
+      std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
+      return (std::wstringstream() << std::put_time(std::gmtime(&time), L"%Y-%m-%d %H:%M:%S")).str();
+    }
     static void sleep_until(TimeStamp untilPoint) {
       // Sleep until the given time point.
       if (untilPoint.timePoint <= std::chrono::system_clock::now())
-        THROW_HERE("Cannot sleep until a time point in the past");
+        EXIT_HERE(L"Cannot sleep until a time point in the past");
       std::this_thread::sleep_until(untilPoint.timePoint);
     }
   };
@@ -516,35 +518,21 @@ namespace cslib {
   class VirtualPath { public:
     // Wrapper around std::filesystem::path
 
-    #ifdef _WIN32
-      static MACRO PATH_SEPARATOR = '\\';
-    #else
-      static MACRO PATH_SEPARATOR = '/';
-    #endif
-
     std::filesystem::path isAt; 
 
     VirtualPath() = default;
-    VirtualPath(std::string where) : isAt(std::filesystem::canonical(where)) {
-      /*
-        Constructor that takes a string and checks if it's a valid path.
-        Notes:
-          - If where is relative, it will be converted to an absolute path.
-          - If where is empty, you will crash.
-      */
-
-      #ifdef _WIN32
-        if (where.find('/') != std::string::npos)
-          THROW_HERE("Path '" + where + "' cannot contain '/' on Windows. Use '\\' instead.");
-      #else
-        if (where.find('\\') != std::string::npos)
-          THROW_HERE("Path '" + where + "' cannot contain '\\' on Linux. Use '/' instead.");
-        #endif
-    }
-    VirtualPath(std::string where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
+    VirtualPath(std::wstring where) : isAt(std::filesystem::canonical(where)) {}
+    VirtualPath(std::string where) : isAt(std::filesystem::canonical(where)) {}
+    /*
+      Constructor that takes a string and checks if it's a valid path.
+      Notes:
+        - If where is relative, it will be converted to an absolute path.
+        - If where is empty, you will crash.
+    */
+    VirtualPath(wstr_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
       // Same as above, but checks if the path is of a specific type.
       if (this->type() != shouldBe)
-        THROW_HERE("Path '" + where + "' of (" + to_str(static_cast<int>(this->type())) + ") should be a " + to_str(static_cast<int>(shouldBe)));
+        EXIT_HERE(L"Path '" + where + L"' of (" + to_wstr(static_cast<int>(this->type())) + L") should be a " + to_wstr(static_cast<int>(shouldBe)));
     }
 
     std::filesystem::file_type type() const {
@@ -556,7 +544,7 @@ namespace cslib {
           // type = std::filesystem::file_type::regular
       */
       if (isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
       return std::filesystem::status(isAt).type();
     }
     VirtualPath parent() const {
@@ -568,10 +556,10 @@ namespace cslib {
           // parent = "/gitstuff/cslib"
       */
       if (isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
       if (isAt.parent_path().empty())
-        THROW_HERE("Path has no parent");
-      return VirtualPath(isAt.parent_path().string());
+        EXIT_HERE(L"Path has no parent");
+      return VirtualPath(isAt.parent_path().wstring());
     }
     size_t depth() const {
       /*
@@ -582,8 +570,8 @@ namespace cslib {
           // depth = 2 (because there are 2 directories before the file)
       */
       if (isAt.empty())
-        THROW_HERE("Uninitialized path");
-      return separate(isAt.string(), PATH_SEPARATOR).size() - 1; // -1 for the last element
+        EXIT_HERE(L"Uninitialized path");
+      return separate(isAt.wstring(), PATH_DELIMITER).size() - 1; // -1 for the last element
     }
     TimeStamp last_modified() const {
       /*
@@ -609,16 +597,16 @@ namespace cslib {
     void move_to(VirtualPath moveTo) {
       // Move this instance to a new location and apply changes.
       if (this->isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
       if (moveTo.isAt.empty())
-        THROW_HERE("Target path is empty");
+        EXIT_HERE(L"Target path is empty");
       if (moveTo.type() != std::filesystem::file_type::directory)
-        THROW_HERE("Target path '" + moveTo.isAt.string() + "' is not a directory");
+        EXIT_HERE(L"Target path '" + moveTo.isAt.wstring() + L"' is not a directory");
       if (moveTo.isAt == this->isAt)
-        THROW_HERE("Cannot move to the same path: " + this->isAt.string());
-      std::string willBecome = moveTo.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
+        EXIT_HERE(L"Cannot move to the same path: " + this->isAt.wstring());
+      std::wstring willBecome = moveTo.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
       if (std::filesystem::exists(willBecome))
-        THROW_HERE("Target path '" + willBecome + "' already exists");
+        EXIT_HERE(L"Target path '" + willBecome + L"' already exists");
       std::filesystem::rename(this->isAt, willBecome);
       this->isAt = VirtualPath(willBecome).isAt; // Apply changes
     }
@@ -628,16 +616,16 @@ namespace cslib {
         a new VirtualPath instance pointing to the copied file.
       */
       if (this->isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
       if (targetDict.isAt.empty())
-        THROW_HERE("Target path is empty");
+        EXIT_HERE(L"Target path is empty");
       if (targetDict.type() != std::filesystem::file_type::directory)
-        THROW_HERE("Target path '" + targetDict.isAt.string() + "' is not a directory");
+        EXIT_HERE(L"Target path '" + targetDict.isAt.wstring() + L"' is not a directory");
       if (targetDict.isAt == this->isAt)
-        THROW_HERE("Cannot copy to the same path: " + this->isAt.string());
-      std::string willBecome = targetDict.isAt.string() + to_str(PATH_SEPARATOR) + this->isAt.filename().string();
+        EXIT_HERE(L"Cannot copy to the same path: " + this->isAt.wstring());
+      std::wstring willBecome = targetDict.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
       if (std::filesystem::exists(willBecome))
-        THROW_HERE("Element '" + willBecome + "' already exists in target directory. Overwriting is avoided by default.");
+        EXIT_HERE(L"Element '" + willBecome + L"' already exists in target directory. Overwriting is avoided by default.");
       std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
     }
@@ -653,42 +641,42 @@ namespace cslib {
         std::string content = file.content();
         // content = "Hello World"
     */
+
     VirtualPath is; // Composition over inheritance
 
     File() = default;
-    File(std::string where) : is(where, std::filesystem::file_type::regular) {}
+    File(wstr_t where) : is(where, std::filesystem::file_type::regular) {}
 
-    std::string content() const {
+    wstr_t content(std::ios_base::openmode openMode = std::ios::in) const {
       /*
         Read the content of the file and return it as a string.
         Note:
           - No error-handling for files larger than available memory
       */
       if (is.isAt.empty())
-        THROW_HERE("Uninitialized path");
-      std::ifstream file(is.isAt, std::ios::binary);
+        EXIT_HERE(L"Uninitialized path");
+      std::wifstream file(is.isAt, openMode);
       if (!file.is_open())
-        THROW_HERE("Failed to open file '" + is.isAt.string() + "'");
+        EXIT_HERE(L"Failed to open file '" + is.isAt.wstring() + L"'");
       if (!file.good())
-        THROW_HERE("Failed to read file '" + is.isAt.string() + "'");
-      return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+        EXIT_HERE(L"Failed to read file '" + is.isAt.wstring() + L"'");
+      return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
     }
-    std::string extension() const {
+    wstr_t wstr() const {
+      if (is.isAt.empty())
+        EXIT_HERE(L"Uninitialized path");
+      return is.isAt.wstring();
+    }
+    wstr_t extension() const {
       // Get file extension with dot 
       if (is.isAt.empty())
-        THROW_HERE("Uninitialized path");
-      return is.isAt.extension().string();
+        EXIT_HERE(L"Uninitialized path");
+      return is.isAt.extension().wstring();
     }
     size_t bytes() const {
-      /*
-        Get the file size in bytes.
-        Example:
-          File file("/gitstuff/cslib/cslib.h++");
-          size_t size = file.bytes();
-          // size = ~40.000 bytes
-      */
+      // Get the file size in bytes.
       if (is.isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
       return std::filesystem::file_size(is.isAt);
     }
   };
@@ -704,24 +692,22 @@ namespace cslib {
     VirtualPath is;
 
     Folder() = default;
-    Folder(std::string where) : is(where, std::filesystem::file_type::directory) {update();}
-
-    void update() {
-      /*
-        Update the content of the folder.
-        Example:
-          Folder folder("/gitstuff");
-          folder.update();
-          // folder.content() = {File("rl"), File("a36m"), Folder("cslib")}
-      */
+    Folder(wstr_t where) : is(where, std::filesystem::file_type::directory) {update();}
+    wstr_t str() const {
       if (is.isAt.empty())
-        THROW_HERE("Uninitialized path");
+        EXIT_HERE(L"Uninitialized path");
+      return is.isAt.wstring();
+    }
+    void update() {
+      if (is.isAt.empty())
+        EXIT_HERE(L"Uninitialized path");
       content.clear();
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
-        content.push_back(VirtualPath(entry.path().string()));
+        content.push_back(VirtualPath(entry.path().wstring()));
       content.shrink_to_fit();
     }
   };
+
 
 
 
@@ -766,7 +752,7 @@ namespace cslib {
       }
       T& get() {
         if (!on())
-          THROW_HERE("Uninitialized optional");
+          EXIT_HERE(L"Uninitialized optional");
         return *reinterpret_cast<T*>(storage);
       }
       ~Optional() {
@@ -776,17 +762,17 @@ namespace cslib {
       // Operator stuff for access
       T& operator*() {
         if (!on())
-          THROW_HERE("Uninitialized optional");
+          EXIT_HERE(L"Uninitialized optional");
         return *reinterpret_cast<T*>(storage);
       }
       T* operator->() {
         if (!on())
-          THROW_HERE("Uninitialized optional");
+          EXIT_HERE(L"Uninitialized optional");
         return reinterpret_cast<T*>(storage);
       }
       operator T() {
         if (!on())
-          THROW_HERE("Uninitialized optional");
+          EXIT_HERE(L"Uninitialized optional");
         return *reinterpret_cast<T*>(storage);
       }
     };
@@ -822,12 +808,12 @@ namespace cslib {
       }
       T& operator[](uint32_t index) {
         if (index >= size)
-          THROW_HERE("Index out of bounds: " + std::to_string(index) + " >= " + std::to_string(size));
+          EXIT_HERE(L"Index out of bounds: " + to_wstr(index) + L" >= " + to_wstr(size));
         return data[index];
       }
       void pop_back() {
         if (size == 0)
-          THROW_HERE("Cannot pop from an empty vector");
+          EXIT_HERE(L"Cannot pop from an empty vector");
         --size;
       }
     };
@@ -869,7 +855,7 @@ namespace cslib {
       void append(char c) {
         uint8_t size = length();
         if (size >= N)
-          THROW_HERE("String capacity exceeded: " + std::to_string(N));
+          EXIT_HERE(L"String capacity exceeded: " + to_wstr(N));
         data[size] = c;
         if (size + 1 < N)
           data[size + 1] = '\0';
@@ -879,7 +865,7 @@ namespace cslib {
       }
       char& at(uint8_t index) {
         if (index >= N)
-          THROW_HERE("Index out of bounds: " + std::to_string(index) + " >= " + std::to_string(N));
+          EXIT_HERE(L"Index out of bounds: " + to_wstr(index) + L" >= " + to_wstr(N));
         return data[index];
       }
       char* begin() {return data;}
@@ -897,6 +883,61 @@ namespace cslib {
         return this->std_str() == other;
       }
     };
+    template <uint8_t N>
+    class Wstring { public:
+      /*
+        Same as String but for wide characters.
+        Example:
+          Wstring<2> str(L"Hi");
+          // str = {L'H', L'i'}
+          Wstring<3> str2(L"Hi");
+          // str2 = {L'H', L'i', L'\0'}
+          Wstring<4> str3(L"Hi");
+          // str3 = {L'H', L'i', L'\0', L'm' (L'm' could have been used
+          for something else earlier but ignored after null-termination)}
+      */
+
+      static_assert(N > 0, "Wstring size must be greater than 0");
+
+      wchar_t data[N] = {L'\0'};
+
+      Wstring() = default;
+      Wstring(std::wstring str) {
+        for (wchar_t c : str)
+          append(c);
+      }
+
+      uint8_t length() {
+        uint8_t size = 0;
+        while (data[size] != L'\0' and size < N)
+          ++size;
+        return size;
+      }
+      void append(wchar_t c) {
+        uint8_t size = length();
+        if (size >= N)
+          EXIT_HERE(L"Wstring capacity exceeded: " + to_wstr(N));
+        data[size] = c;
+        if (size + 1 < N)
+          data[size + 1] = L'\0';
+      }
+      void clear() {
+        data = {L'\0'};
+      }
+      wchar_t& at(uint8_t index) {
+        if (index >= N)
+          EXIT_HERE(L"Index out of bounds: " + to_wstr(index) + L" >= " + to_wstr(N));
+        return data[index];
+      }
+      wchar_t* begin() {return data;}
+      wchar_t* end() {return data + length();}
+      wstr_t std_str() {
+        wstr_t str;
+        for (wchar_t c : data)
+          str += c;
+        return str;
+      }
+    };
 
 
     template <typename K, typename V>
@@ -912,14 +953,14 @@ namespace cslib {
       Vector<Node> data;
       void insert(K key, V value) {
         if (contains(key))
-          THROW_HERE("Key already exists: " + to_str(key));
+          EXIT_HERE(L"Key already exists: " + to_wstr(key));
         data.push_back({key, value});
       }
       V& at(K key) {
         for (Node& node : data)
           if (node.key == key)
             return node.value;
-        THROW_HERE("Key not found");
+        EXIT_HERE(L"Key not found");
       }
       V& operator[](K key) {
         return at(key);

@@ -49,14 +49,13 @@ namespace cslib {
 
   // Other
   using wstr_t = std::wstring;
-  using o_str_t = std::string;
+  using wstr_view_t = std::wstring_view;
+  using here_t = std::pair<const wchar_t *const, int>; // Current file and line number
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
-  #define EXIT_HERE(reason) { \
-    std::wcout << __FILE__ << L':' << __LINE__ << L": " << reason << std::endl; \
-    std::exit(EXIT_FAILURE); \
-  }
+  #define HERE here_t(#__FILE__, __LINE__) // Current file and line number
+  HERE
   MACRO Black = L"\033[30m";
   MACRO Red = L"\033[31m";
   MACRO Green = L"\033[32m";
@@ -75,54 +74,56 @@ namespace cslib {
 
 
   // Functions
-  void sleep(size_t ms) {
+  void EXIT_HERE(wstr_t reason, here_t where) {
+    /*
+      Prematurely exit the program with an error message.
+    */
+    std::wcout << where.first << L':' << where.second << L": " << reason << std::endl;
+    std::exit(EXIT_FAILURE);
+  }
+
+
+
+  void pause(size_t ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   }
 
 
 
   // Find the correct way to convert T to (w-)string
-  o_str_t to_str(const char *const value) {
-    return o_str_t(value);
-  }
-  wstr_t to_wstr(const wchar_t *const value) {
-    return wstr_t(value);
-  }
-  wstr_t to_wstr(const char *const value) {
-    return wstr_t(value, value + std::strlen(value));
-  }
-  o_str_t to_str(char value) {
-    return o_str_t(1, value);
-  }
-  wstr_t to_wstr(wchar_t value) {
-    return wstr_t(1, value);
+  std::string to_str(char value) {
+    return std::string(1, value);
   }
   wstr_t to_wstr(char value) {
     return wstr_t(1, static_cast<wchar_t>(value));
   }
-  o_str_t to_str(wstr_t value) {
-    return o_str_t(value.begin(), value.end());
+  wstr_t to_wstr(wchar_t value) {
+    return wstr_t(1, value);
   }
-  o_str_t to_str(std::string_view value) {
-    return o_str_t(value.data());
+  std::string to_str(std::wstring_view value) {
+    // Convert wide string view to narrow string
+    return std::string(value.data(), value.data() + value.size());
   }
-  wstr_t to_wstr(std::wstring_view value) {
-    return wstr_t(value.data());
+  std::string to_str(std::string_view value) {
+    return std::string(value.data(), value.data() + value.size());
   }
   wstr_t to_wstr(std::string_view value) {
     return wstr_t(value.data(), value.data() + value.size());
   }
+  wstr_t to_wstr(std::wstring_view value) {
+    return wstr_t(value.data(), value.data() + value.size());
+  }
   template <std::integral T>
-  o_str_t to_str(T value) {
-    return o_str_t(std::to_string(value));
+  std::string to_str(T value) {
+    return std::string(std::to_string(value));
   }
   template <std::integral T>
   wstr_t to_wstr(T value) {
     return wstr_t(std::to_wstring(value));
   }
   template <std::floating_point T>
-  o_str_t to_str(T value) {
-    return o_str_t(std::to_string(value));
+  std::string to_str(T value) {
+    return std::string(std::to_string(value));
   }
   template <std::floating_point T>
   wstr_t to_wstr(T value) {
@@ -131,10 +132,32 @@ namespace cslib {
 
 
 
-  void sh_call(o_str_t command) {
+  void sh_call(std::string command) {
     // Blocking system call
     if (system(command.c_str()) != 0)
-      EXIT_HERE(L"Failed: " + to_wstr(command));
+      EXIT_HERE(L"Failed: " + to_wstr(command), HERE);
+  }
+
+
+
+  std::wstring sh_call_w_response(std::string command) {
+    /*
+      Execute a shell command and return its output as a wide string.
+      Note:
+        - This function is blocking
+        - It uses popen to execute the command and read its output
+    */
+    std::wstring result;
+    FILE* pipe = _wpopen(to_wstr(command).c_str(), L"r");
+    if (!pipe)
+      EXIT_HERE(L"Failed to execute command: " + to_wstr(command), HERE);
+    
+    wchar_t buffer[128];
+    while (fgetws(buffer, sizeof(buffer) / sizeof(wchar_t), pipe) != nullptr)
+      result += buffer;
+    
+    _pclose(pipe);
+    return result;
   }
 
 
@@ -166,12 +189,12 @@ namespace cslib {
 
 
 
-  o_str_t get_env(o_str_t var) {
+  std::string get_env(std::string var) {
     // Get environment variable by name
     char* envCStr = getenv(var.c_str());
     if (envCStr == NULL)
-      EXIT_HERE(L"Environment variable '" + to_wstr(var) + L"' not found");
-    return o_str_t(envCStr);
+      EXIT_HERE(L"Environment variable '" + to_wstr(var) + L"' not found", HERE));
+    return std::string(envCStr);
   }
 
 
@@ -230,7 +253,7 @@ namespace cslib {
         });
     */
     if (retries == 0)
-      EXIT_HERE(L"Retries must be greater than 0");
+      EXIT_HERE(L"Retries must be greater than 0", HERE);
     for (size_t tried : range(retries)) {
       try {
         target(); // Try to execute the function
@@ -238,7 +261,7 @@ namespace cslib {
       } catch (const std::exception& e) {
         if (tried == retries - 1) {
           // If this was the last retry, throw the exception
-          EXIT_HERE(L"Failed after " + to_wstr(retries) + L" retries: " + to_wstr(e.what()));
+          EXIT_HERE(L"Failed after " + to_wstr(retries) + L" retries: " + to_wstr(e.what()), HERE);
         }
       }
       sleep(delay);
@@ -337,7 +360,7 @@ namespace cslib {
 
 
 
-  std::vector<o_str_t> separate(o_str_t str, wchar_t delimiter) {
+  std::vector<std::string> separate(std::string str, wchar_t delimiter) {
     /*
       Create vector of strings from a string by separating it with a delimiter.
       Note:
@@ -346,8 +369,8 @@ namespace cslib {
         - If delimiter is not found, the whole string is added to the vector
     */
 
-    std::vector<o_str_t> result;
-    o_str_t temp;
+    std::vector<std::string> result;
+    std::string temp;
 
     if (str.empty() or delimiter == L'\0')
       return result;
@@ -418,6 +441,46 @@ namespace cslib {
 
 
 
+  void enable_wchar_io() {
+    // Set all io-streaming globally to UTF-8 encoding
+
+    // Get the first available UTF-8 locale
+    const std::vector<std::string> utf8_locales = {
+      "en_US.UTF-8",
+      "en_US.utf8",
+      "C.UTF-8",
+      "POSIX.UTF-8",
+      "C.utf8",
+      "POSIX.utf8"
+    };
+    std::locale utf8_locale;
+    for (std::string locale_name : utf8_locales) {
+      try {
+        utf8_locale = std::locale(locale_name.c_str());
+      } catch (const std::runtime_error&) {
+        // Ignore the exception, try the next locale
+      }
+    }
+    if (utf8_locale.name().empty())
+      EXIT_HERE(L"Failed to find a suitable UTF-8 locale. Please ensure your system supports UTF-8 locales.");
+
+    // Set the global locale and imbue all streams with it
+    std::locale::global(utf8_locale);
+    std::wcout.imbue(utf8_locale);
+    std::wcin.imbue(utf8_locale);
+    std::wclog.imbue(utf8_locale);
+    std::wcerr.imbue(utf8_locale);
+
+    // Keep the original streams for compatibility
+    std::cout.imbue(utf8_locale);
+    std::cin.imbue(utf8_locale);
+    std::clog.imbue(utf8_locale);
+    std::cerr.imbue(utf8_locale);
+  }
+
+
+
+
   // Classes
   class Out { public:
     /*
@@ -426,23 +489,6 @@ namespace cslib {
         cslib::Out error("Error: ", cslib::Out::Color::RED);
         error << "Something went wrong";
     */
-    static void set_us_utf8_encoding() {
-      // Set all io-streaming globally to UTF-8 encoding
-
-      std::locale utf8_locale = std::locale("en_US.UTF-8");
-      if (utf8_locale.name() == "C" or utf8_locale.name() == "POSIX")
-        EXIT_HERE(L"UTF-8 locale not found. Please set the locale to UTF-8 in your system settings.");
-
-      std::locale::global(utf8_locale);
-      std::wcout.imbue(utf8_locale);
-      std::wcin.imbue(utf8_locale);
-      std::wclog.imbue(utf8_locale);
-      std::wcerr.imbue(utf8_locale);
-      std::cout.imbue(utf8_locale);
-      std::cin.imbue(utf8_locale);
-      std::clog.imbue(utf8_locale);
-      std::cerr.imbue(utf8_locale);
-    }
     wstr_t prefix;
     Out(wstr_t pref, wstr_t color = L"") {
       prefix = color;
@@ -467,7 +513,7 @@ namespace cslib {
     void update() {
       timePoint = std::chrono::system_clock::now();
     }
-    o_str_t asStr() const {
+    std::string asStr() const {
       /*
         Convert the time point to (lighter form of) ISO 8601
         in format YYYY-MM-DD HH:MM:SS).

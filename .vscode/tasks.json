@@ -10,6 +10,9 @@
                 "${file}",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
+                "-Wall",
+                "-Wextra",
+                "-O0",
                 "-std=c++23",
             ],
             "options": {

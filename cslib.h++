@@ -4,6 +4,7 @@
 #include <condition_variable>
 #include <initializer_list>
 #include <unordered_map>
+#include <unordered_set>
 #include <string_view>
 #include <stop_token>
 #include <filesystem>
@@ -27,7 +28,9 @@
 #include <array>
 #include <deque>
 #include <cmath>
+#include <list>
 #include <map>
+#include <set>
 
 
 #pragma once
@@ -43,9 +46,7 @@
 #endif
 
 
-// Extra sauce of convenience
-std::ostream& console = std::cout;
-std::wostream& wconsole = std::wcout;
+
 
 namespace cslib {
   // Jack of all trades (Helper functions and classes)
@@ -56,26 +57,6 @@ namespace cslib {
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
-  #define HERE std::pair<const char *const, int>(__FILE__, __LINE__) // Can't wide it without macro errors
-  MACRO Bold = L"\033[1m";
-  MACRO Underline = L"\033[4m";
-  MACRO Italic = L"\033[3m";
-  MACRO Reverse = L"\033[7m";
-  MACRO Hidden = L"\033[8m";
-  MACRO Black = L"\033[30m";
-  MACRO Red = L"\033[31m";
-  MACRO Green = L"\033[32m";
-  MACRO Yellow = L"\033[33m";
-  MACRO Blue = L"\033[34m";
-  MACRO Magenta = L"\033[35m";
-  MACRO Cyan = L"\033[36m";
-  MACRO White = L"\033[37m";
-  MACRO Reset = L"\033[0m";
-  #ifdef _WIN32
-    MACRO PATH_DELIMITER = L'\\';
-  #else
-    MACRO PATH_DELIMITER = L'/';
-  #endif
 
 
 
@@ -86,9 +67,65 @@ namespace cslib {
 
 
 
-  // Find the correct way to convert T to (w-)string
+  // Find the correct way to convert T to string
+  template <typename T>
+  std::string to_ptrstr(T* value) {
+    /*
+      Convert a pointer to a cool looking
+      pointer address string.
+      Example:
+        cslib::to_str(&value) // "0x123"
+    */
+    if (value == nullptr)
+      return "nullptr"; // Handle null pointers
+    std::ostringstream oss;
+    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(value);
+    return oss.str();
+  }
   std::string to_str(char value) {
-    return std::string(1, value);
+    return std::string(1, value); // Convert char to string
+  }
+  std::string to_str(wchar_t value) {
+    return std::string(1, static_cast<char>(value)); // Convert wchar_t to string
+  }
+  std::string to_str(std::string_view value) {
+    /*
+      Also for const char*
+    */
+    return std::string(value.data(), value.data() + value.size());
+  }
+  std::string to_str(wstrsv_t value) {
+    /*
+      Also for const wchar_t*
+      Note: This is a lossy conversion, as wchar_t can represent characters
+      that cannot be represented in a single byte string.
+      Use with caution, as it may lead to data loss.
+    */
+    return std::string(value.data(), value.data() + value.size());
+  }
+  template <std::integral T>
+  std::string to_str(T value) {
+    return std::string(std::to_string(value));
+  }
+  template <std::floating_point T>
+  std::string to_str(T value) {
+    return std::string(std::to_string(value));
+  }
+
+  // Find the correct way to convert T to wide string
+  template <typename T>
+  wstr_t to_ptrwstr(T* value) {
+    /*
+      Convert a pointer to a cool looking
+      pointer address string.
+      Example:
+        cslib::to_wstr(&value) // "0x123"
+    */
+    if (value == nullptr)
+      return L"nullptr"; // Handle null pointers
+    std::wostringstream oss;
+    oss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(value);
+    return oss.str();
   }
   wstr_t to_wstr(char value) {
     return wstr_t(1, static_cast<wchar_t>(value));
@@ -96,32 +133,21 @@ namespace cslib {
   wstr_t to_wstr(wchar_t value) {
     return wstr_t(1, value);
   }
-  std::string to_str(wstrsv_t value) {
-    return std::string(value.data(), value.data() + value.size());
-  }
-  std::string to_str(std::string_view value) {
-    // Also for const char*
-    return std::string(value.data(), value.data() + value.size());
-  }
   wstr_t to_wstr(std::string_view value) {
-    // Also for const char*
+    /*
+      Also for const char*
+    */
     return wstr_t(value.data(), value.data() + value.size());
   }
   wstr_t to_wstr(wstrsv_t value) {
-    // Also for const wchar_t*
+    /*
+      Also for const wchar_t*
+    */
     return wstr_t(value.data(), value.data() + value.size());
   }
   template <std::integral T>
-  std::string to_str(T value) {
-    return std::string(std::to_string(value));
-  }
-  template <std::integral T>
   wstr_t to_wstr(T value) {
     return wstr_t(std::to_wstring(value));
-  }
-  template <std::floating_point T>
-  std::string to_str(T value) {
-    return std::string(std::to_string(value));
   }
   template <std::floating_point T>
   wstr_t to_wstr(T value) {
@@ -130,33 +156,80 @@ namespace cslib {
 
 
 
-  void EXIT_HERE(wstrsv_t reason, std::pair<const char *const, int> where) {
-    /*
-      Prematurely exit the program with an error message.
-    */
-    std::wcout << to_wstr(where.first) << L':' << to_wstr(where.second) << L": " << reason << std::endl;
-    std::exit(EXIT_FAILURE);
+  template <typename T>
+  void print(const T& msg) {
+    std::wcout << msg << std::flush;
   }
-  void EXIT_HERE(std::string_view reason, std::pair<const char *const, int> where) {
-    /*
-      Same as above, but for narrow strings.
-    */
-    std::cout << where.first << ':' << where.second << ": " << reason << std::endl;
-    std::exit(EXIT_FAILURE);
+  template <typename T>
+  void print(T&& msg) {
+    std::wcout << std::forward<T>(msg) << std::flush;
   }
+  void print(const char *const msg) {
+    std::wcout << to_wstr(msg) << std::flush;
+  }
+  void print(const std::string& msg) {
+    std::wcout << to_wstr(msg) << std::flush;
+  }
+  void print(std::string&& msg) {
+    std::wcout << to_wstr(std::move(msg)) << std::flush;
+  }
+  void print(std::string_view msg) {
+    std::wcout << to_wstr(msg) << std::flush;
+  }
+
+  template <typename T>
+  void println(const T& msg) {
+    std::wcout << msg << std::endl;
+  }
+  template <typename T>
+  void println(T&& msg) {
+    std::wcout << std::forward<T>(msg) << std::endl;
+  }
+  void println(const char *const msg) {
+    std::wcout << to_wstr(msg) << std::endl;
+  }
+  void println(const std::string& msg) {
+    std::wcout << to_wstr(msg) << std::endl;
+  }
+  void println(std::string&& msg) {
+    std::wcout << to_wstr(std::move(msg)) << std::endl;
+  }
+  void println(std::string_view msg) {
+    std::wcout << to_wstr(msg) << std::endl;
+  }
+
+
+
+  template <typename... Args>
+  std::runtime_error up_impl(size_t line, Args&&... messages) {
+    /*
+      Create a custom runtime error with the given messages.
+      Example:
+        #define up(...) up_impl(__LINE__, __VA_ARGS__)
+        if (1 == 2)
+          throw up("Hello", "World", 123, L"Wide string");
+    */
+    wstr_t message;
+    ((message += to_wstr(std::forward<Args>(messages))), ...);
+    std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
+    std::filesystem::path currentPath = std::filesystem::current_path();
+    return std::runtime_error("std::runtime_error called from line " + std::to_string(line) + " in workspace '" + currentPath.string() + "'");
+  }
+  #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
 
 
 
   void sh_call(std::string_view command) {
-    // Blocking system call
-    if (system(command.data()) != 0)
-      EXIT_HERE("Failed: " + to_str(command), HERE);
+    /*
+      Blocking system call
+    */
+    if (system(command.data()) != 0)  
+      throw_up("Failed to execute command: ", command);
   }
 
 
 
   void clear_console() {
-    // wipe previous output and move cursor to the top
     #ifdef _WIN32
       sh_call("cls");
     #else
@@ -168,12 +241,16 @@ namespace cslib {
 
   template <typename Key, typename Container>
   bool contains(Container& lookIn, Key& lookFor) {
-    // does `container` contain `key`?
+    /*
+      does `container` contain `key`
+    */
     return std::find(lookIn.begin(), lookIn.end(), lookFor) != lookIn.end();
   }
   template <typename Containers>
   bool have_something_common(Containers& c1, Containers& c2) {
-    // do `c1` and `c2` contain similar keys?
+    /*
+      do `c1` and `c2` contain similar keys
+    */
     for (auto item : c1)
       if (contains(c2, item))
         return true;
@@ -183,10 +260,12 @@ namespace cslib {
 
 
   std::string get_env(std::string_view var) {
-    // Get environment variable by name
-    char *const envCStr = getenv(var.data());
+    /*
+      Get the value of an environment variable.
+    */
+    const char *const envCStr = getenv(var.data());
     if (envCStr == NULL)
-      EXIT_HERE("Environment variable '" + to_str(var) + "' not found", HERE);
+      throw_up("Environment variable '", var, "' not found");
     return std::string(envCStr);
   }
 
@@ -209,15 +288,9 @@ namespace cslib {
     return result;
   }
   std::vector<int> range(int end) {
-    // Exact same as the function above, but with `start = 0`
     return range(0, end);
   }
   std::vector<size_t> range(size_t start, size_t end) {
-    /*
-      Same as above, but with size_t.
-      Example:
-        cslib::range(0, 10); // {0, 1, 2, ..., 10}
-    */
     std::vector<size_t> result;
     if (start > end) // reverse
       for (size_t i = start; i >= end; --i)
@@ -230,79 +303,93 @@ namespace cslib {
     return result;
   }
   std::vector<size_t> range(size_t end) {
-    // Same as above, but with `start = 0`
     return range(size_t(0), end);
   }
 
 
 
-  void retry(std::function<void()> target, size_t retries, size_t delay = 0) {
+  template <typename T>
+  T retry(const std::function<T()>& target, size_t retries, size_t delay = 0) {
     /*
       Retry a function up to `retries` times with a delay
       of `delay` milliseconds between each retry.
+      Note:
+        No lambda support
       Example:
-        cslib::retry([]() {
+        std::function<void()> func = []() {
           // Do something that might fail
-        });
+        };
+        cslib::retry(func, 3);
     */
     if (retries == 0)
-      EXIT_HERE("Retries must be greater than 0", HERE);
+      throw_up("Retries must be greater than 0");
     for (size_t tried : range(retries)) {
       try {
-        target(); // Try to execute the function
-        return; // If successful, exit the function
+        return target();
       } catch (const std::exception& e) {
         if (tried == retries - 1) {
-          // If this was the last retry, throw the exception
-          EXIT_HERE("Failed after " + to_str(retries) + " retries: " + to_str(e.what()), HERE);
+          throw_up("Function ", to_ptrstr(&target), " failed after ", retries, " retries: ", e.what());
+        }
+      } catch (...) {
+        // Catch all other exceptions
+        if (tried == retries - 1) {
+          throw_up("Function ", to_ptrstr(&target), " failed after ", retries, " retries: Unknown exception");
         }
       }
-      sleep(delay);
+      std::this_thread::sleep_for(std::chrono::milliseconds(delay));
     }
+    return T(); // This line is unreachable but keeps compiler happy
   }
 
 
 
   std::vector<std::string> parse_cli_args(int argc, const char *const argv[]) {
-    // Parse command line arguments and return them as a vector of strings.
+    /*
+      Parse command line arguments and return them as a
+      vector of strings.
+      Note:
+        The first argument is the program name, so we skip it
+    */
     std::vector<std::string> args;
-    for (int i : range(argc - 1))
+    if (argc <= 1)
+      return args; // No arguments provided
+    for (int i : range(1, argc - 1))
       args.emplace_back(argv[i]);
     return args;
   }
 
 
 
+  FIXED wstrsv_t TRIM_WITH = L"...";
   wstr_t shorten_end(wstrsv_t wstrsv, size_t maxLength) {
     /*
-      Trim and add "..." to the end of the string
+      Trim and content of `TRIM_WITH` to the end of the string
       if it exceeds `maxLength`.
+      Example:
+        cslib::shorten_end(L"cslib.h++", 3);
+        // is "c..."
     */
-    wstr_t str(wstrsv);
-    if (str.length() > maxLength)
-      str = str.substr(0, maxLength - 3) + L"..."; // 3 for "..."
-    return str;
+    if (maxLength < TRIM_WITH.length())
+      throw_up("maxLength must be greater than or equal to the length of TRIM_WITH (", TRIM_WITH.length(), ')');
+    wstr_t wstr(wstrsv);
+    if (wstr.length() > maxLength)
+      return wstr.substr(0, maxLength - TRIM_WITH.length()) + TRIM_WITH.data();
+    return wstr;
   }
-  std::string shorten_end(std::string_view strsv, size_t maxLength) {
-    // Same as above but for narrow strings
-    std::string str(strsv);
-    if (str.length() > maxLength)
-      str = str.substr(0, maxLength - 3) + "..."; // 3 for "..."
-    return str;
-  }
-  wstr_t shorten_begin(wstr_t wstrsv, size_t maxLength) {
-    // Same as above but trimming the beginning of the string
-    wstr_t str(wstrsv);
-    if (str.length() > maxLength)
-      str = L"..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
-    return str;
-  }
-  std::string shorten_begin(std::string_view strsv, size_t maxLength) {
-    // Same as above but for narrow strings
-    std::string str(strsv);
-    if (str.length() > maxLength)
-      str = "..." + str.substr(str.length() - maxLength + 3); // 3 for "..."
-    return str;
+  wstr_t shorten_begin(wstrsv_t wstrsv, size_t maxLength) {
+    /*
+      Trim and content of `TRIM_WITH` to the beginning of the string
+      if it exceeds `maxLength`.
+      Example:
+        cslib::shorten_begin(L"cslib.h++", 3);
+        // is "...h++"
+    */
+    if (maxLength < TRIM_WITH.length())
+      throw_up("maxLength must be greater than or equal to the length of TRIM_WITH (", TRIM_WITH.length(), ')');
+    wstr_t wstr(wstrsv);
+    if (wstr.length() > maxLength)
+      return TRIM_WITH.data() + wstr.substr(wstr.length() - (maxLength - TRIM_WITH.length()));
+    return wstr;
   }
 
 
@@ -317,11 +404,10 @@ namespace cslib {
     wstr_t str(wstrsv);
     return std::transform(str.begin(), str.end(), str.begin(), ::toupper), str;
   }
-  std::string upper(std::string_view strsv) {
-    // Same as above but for narrow strings
-    std::string str(strsv);
-    return std::transform(str.begin(), str.end(), str.begin(), ::toupper), str;
+  void upper_ref(wstr_t& wstr) {
+    std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::toupper);
   }
+
   wstr_t lower(wstrsv_t wstrsv) {
     /*
       Converts it to lowercase.
@@ -332,59 +418,8 @@ namespace cslib {
     wstr_t str(wstrsv);
     return std::transform(str.begin(), str.end(), str.begin(), ::tolower), str;
   }
-  std::string lower(std::string_view strsv) {
-    // Same as above but for narrow strings
-    std::string str(strsv);
-    return std::transform(str.begin(), str.end(), str.begin(), ::tolower), str;
-  }
-
-
-
-  wstr_t escape_str(wstrsv_t wstrsv) {
-    // Escape special characters in a string.
-    wstr_t str(wstrsv);
-    wstr_t result;
-    for (wchar_t c : str) {
-      switch (c) {
-        case L'"': result += L"\\\""; break;
-        case L'\\': result += L"\\\\"; break;
-        case L'\n': result += L"\\n"; break;
-        case L'\r': result += L"\\r"; break;
-        case L'\t': result += L"\\t"; break;
-        default: result += c; break;
-      }
-    }
-    return result;
-  }
-  std::string escape_str(std::string_view strsv) {
-    return to_str(escape_str(to_wstr(strsv)));
-  }
-  wstr_t unescape_str(wstr_t wstrsv) {
-    // Unescape special characters in a string.
-    wstr_t str(wstrsv);
-    wstr_t result;
-    bool escape = false;
-    for (wchar_t c : str) {
-      if (escape) {
-        switch (c) {
-          case L'"': result += L'"'; break;
-          case L'\\': result += L'\\'; break;
-          case L'n': result += L'\n'; break;
-          case L'r': result += L'\r'; break;
-          case L't': result += L'\t'; break;
-          default: result += c; break; // If not a special character, just add it
-        }
-        escape = false;
-      } else if (c == '\\') {
-        escape = true; // Next character is escaped
-      } else {
-        result += c; // Just add the character
-      }
-    }
-    return result;
-  }
-  std::string unescape_str(std::string_view strsv) {
-    return to_str(unescape_str(to_wstr(strsv)));
+  void lower_ref(wstr_t& wstr) {
+    std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::tolower);
   }
 
 
@@ -415,14 +450,6 @@ namespace cslib {
 
     return result;
   }
-  std::vector<std::string> separate(std::string_view strsv, char delimiter) {
-    // Same as above, but for narrow strings.
-    std::vector<wstr_t> wideSeparated = separate(to_wstr(str), delimiter);
-    std::vector<std::string> result;
-    for (const wstr_t& item : wideSeparated)
-      result.push_back(to_str(item));
-    return result;
-  }
 
 
 
@@ -435,22 +462,17 @@ namespace cslib {
     if (min > max) std::swap(min, max);
 
     // Special thanks to copilot. No idea what this does
-    static std::random_device rd;
-    static std::mt19937 gen(rd());
+    std::random_device rd;
+    std::mt19937 gen(rd());
     std::uniform_int_distribution<size_t> dis(min, max);
     return dis(gen);
   }
 
 
 
-  wstr_t winput() {
+  wstr_t input() {
     wstr_t input;
     std::getline(std::wcin, input);
-    return input;
-  }
-  std::string input() {
-    std::string input;
-    std::getline(std::cin, input);
     return input;
   }
 
@@ -477,26 +499,34 @@ namespace cslib {
       }
     }
     if (utf8_locale.name().empty())
-      EXIT_HERE("Failed to find a suitable UTF-8 locale. Please ensure your system supports UTF-8 locales.", HERE);
+      throw_up("Failed to find a suitable UTF-8 locale. Ensure your system supports UTF-8 locales");
 
-    // Set the global locale and imbue all streams with it
     std::locale::global(utf8_locale);
     std::wcout.imbue(utf8_locale);
     std::wcin.imbue(utf8_locale);
     std::wclog.imbue(utf8_locale);
     std::wcerr.imbue(utf8_locale);
 
-    // Keep the original streams for compatibility
-    std::cout.imbue(utf8_locale);
-    std::cin.imbue(utf8_locale);
-    std::clog.imbue(utf8_locale);
-    std::cerr.imbue(utf8_locale);
+    std::wcout << L"[⛓️‍💥] Console initialized with UTF-8 encoding.\n";
   }
 
 
 
-
   // Classes
+  MACRO Bold = L"\033[1m";
+  MACRO Underline = L"\033[4m";
+  MACRO Italic = L"\033[3m";
+  MACRO Reverse = L"\033[7m";
+  MACRO Hidden = L"\033[8m";
+  MACRO Black = L"\033[30m";
+  MACRO Red = L"\033[31m";
+  MACRO Green = L"\033[32m";
+  MACRO Yellow = L"\033[33m";
+  MACRO Blue = L"\033[34m";
+  MACRO Magenta = L"\033[35m";
+  MACRO Cyan = L"\033[36m";
+  MACRO White = L"\033[37m";
+  MACRO Reset = L"\033[0m";
   class Out { public:
     /*
       Print to console with color and optionally into an existing file.
@@ -505,14 +535,13 @@ namespace cslib {
         error << "Something went wrong";
     */
     wstr_t prefix;
-    Out(wstrsv_t wprefsv, wstr_t color = L"") {
+    Out(wstrsv_t wprefsv, wstrsv_t color = L"") {
       prefix = color;
       prefix += wprefsv;
       prefix += Reset;
       prefix += L" ";
     }
     Out(std::string_view prefsv, std::string_view color = "") {
-      // Same as above, but for narrow strings
       prefix = to_wstr(color);
       prefix += to_wstr(prefsv);
       prefix += Reset;
@@ -520,20 +549,24 @@ namespace cslib {
     }
     template <typename T>
     std::wostream& operator<<(const T& msg) {
-      // Same as std::wcout << msg, but with color and prefix
-      std::wcout << prefix << ' ' << msg;
+      /*
+        Print to console with the given prefix
+        Example:
+          cslib::Out out(L"Info: ", GREEN);
+          out << "This is an info message" << std::endl;
+      */
+      std::wcout << prefix << msg << std::flush;
       return std::wcout;
     }
-    std::wostream& operator<<(std::wstring_view msg) {
-      std::wcout << prefix << ' ' << msg;
-      return std::wcout;
-    }
-    std::ostream& operator<<(std::string_view msg) {
-      // Same as above, but for narrow strings
-      std::wcout << prefix;
-      std::cout << ' ' << msg;
-      return std::cout;
-    }
+    std::wostream& operator<<(const std::string& msg) = delete;
+    std::wostream& operator<<(const std::string_view& msg) = delete;
+    std::wostream& operator<<(const char* msg) = delete;
+    /*
+      Syncing two streambuffers are unreliable and
+      requires a lot of workarounds. Enforcing wchar_t
+      allocated stream buffers is more unified and
+      easier to use
+    */
   };
 
 
@@ -542,29 +575,26 @@ namespace cslib {
     // A wrapper around std::chrono that I have control over
     std::chrono::system_clock::time_point timePoint;
     TimeStamp() {update();}
+    TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
     void update() {
       timePoint = std::chrono::system_clock::now();
     }
-    std::string asStr() const {
+    wstr_t asWstr() const {
       /*
         Convert the time point to (lighter form of) ISO 8601
-        in format YYYY-MM-DD HH:MM:SS).
+        in format YYYY-MM-DD HH:MM:SS)..
       */
-      std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
-      return (std::stringstream() << std::put_time(std::gmtime(&time), "%Y-%m-%d %H:%M:%S")).str();
-    }
-    wstr_t asWstr() const {
-      // Same as above, but returns a wide string.
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
       return (std::wstringstream() << std::put_time(std::gmtime(&time), L"%Y-%m-%d %H:%M:%S")).str();
     }
-    static void sleep_until(TimeStamp untilPoint) {
-      // Sleep until the given time point.
-      if (untilPoint.timePoint <= std::chrono::system_clock::now())
-        EXIT_HERE("Cannot sleep until a time point in the past", HERE);
-      std::this_thread::sleep_until(untilPoint.timePoint);
-    }
   };
+  void sleep_until(const TimeStamp& untilPoint) {
+    // Sleep until the given time point.
+    if (untilPoint.timePoint <= std::chrono::system_clock::now()) {
+      throw_up("Cannot sleep until a time point in the past: ", TimeStamp().asWstr(), " (current time: ", untilPoint.asWstr(), ')');
+    }
+    std::this_thread::sleep_until(untilPoint.timePoint);
+  }
 
 
 
@@ -593,14 +623,19 @@ namespace cslib {
 
 
 
+
+  #ifdef _WIN32
+    MACRO PATH_DELIMITER = L'\\';
+  #else
+    MACRO PATH_DELIMITER = L'/';
+  #endif
   class VirtualPath { public:
     // Wrapper around std::filesystem::path
 
     std::filesystem::path isAt; 
 
     VirtualPath() = default;
-    VirtualPath(wstrsv_t where) : isAt(std::filesystem::canonical(where)) {}
-    VirtualPath(std::string_view where) : isAt(std::filesystem::canonical(where)) {}
+    VirtualPath(wstrsv_t where) : isAt(std::filesystem::canonical(where.data())) {}
     /*
       Constructor that takes a string and checks if it's a valid path.
       Notes:
@@ -608,12 +643,32 @@ namespace cslib {
         - If where is empty, you will crash.
     */
     VirtualPath(wstrsv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
-      // Same as above, but checks if the path is of a specific type.
-      if (this->type() != shouldBe)
-        EXIT_HERE(L"Path '" + to_wstr(where) + L"' of (" + to_wstr(static_cast<int>(this->type())) + L") should be a " + to_wstr(static_cast<int>(shouldBe)), HERE);
-    }
-    VirtualPath(std::string_view where, std::filesystem::file_type shouldBe) : VirtualPath(to_wstr(where), shouldBe) {
-      // Same as above, but for narrow strings
+      if (this->type() != shouldBe) {
+        wstr_t errorMsg = L"Path '" + to_wstr(where) + L"' should be of type '";
+        switch (shouldBe) {
+          case std::filesystem::file_type::regular: errorMsg += L"regular file"; break;
+          case std::filesystem::file_type::directory: errorMsg += L"directory"; break;
+          case std::filesystem::file_type::symlink: errorMsg += L"symlink"; break;
+          case std::filesystem::file_type::block: errorMsg += L"block device"; break;
+          case std::filesystem::file_type::character: errorMsg += L"character device"; break;
+          case std::filesystem::file_type::fifo: errorMsg += L"FIFO (named pipe)"; break;
+          case std::filesystem::file_type::socket: errorMsg += L"socket"; break;
+          default: errorMsg += L"unknown type";
+        }
+        errorMsg += L"', but is actually of type '";
+        switch (this->type()) {
+          case std::filesystem::file_type::regular: errorMsg += L"regular file"; break;
+          case std::filesystem::file_type::directory: errorMsg += L"directory"; break;
+          case std::filesystem::file_type::symlink: errorMsg += L"symlink"; break;
+          case std::filesystem::file_type::block: errorMsg += L"block device"; break;
+          case std::filesystem::file_type::character: errorMsg += L"character device"; break;
+          case std::filesystem::file_type::fifo: errorMsg += L"FIFO (named pipe)"; break;
+          case std::filesystem::file_type::socket: errorMsg += L"socket"; break;
+          default: errorMsg += L"unknown type";
+        }
+        errorMsg += L"'";
+        throw_up(errorMsg);
+      }
     }
 
     std::filesystem::file_type type() const {
@@ -625,7 +680,7 @@ namespace cslib {
           // type = std::filesystem::file_type::regular
       */
       if (isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
       return std::filesystem::status(isAt).type();
     }
     VirtualPath parent() const {
@@ -637,10 +692,10 @@ namespace cslib {
           // parent = "/gitstuff/cslib"
       */
       if (isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
       if (isAt.parent_path().empty())
-        EXIT_HERE("Path has no parent", HERE);
-      return VirtualPath(isAt.parent_path().wstring());
+        throw_up("VirtualPath '", to_ptrstr(this), "' has somehow no parent");
+      return VirtualPath(isAt.parent_path().wstring(), std::filesystem::file_type::directory);
     }
     size_t depth() const {
       /*
@@ -651,7 +706,7 @@ namespace cslib {
           // depth = 2 (because there are 2 directories before the file)
       */
       if (isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
       return separate(isAt.wstring(), PATH_DELIMITER).size() - 1; // -1 for the last element
     }
     TimeStamp last_modified() const {
@@ -671,23 +726,22 @@ namespace cslib {
       std::chrono::system_clock::time_point timePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
       std::time_t cftime = std::chrono::system_clock::to_time_t(timePoint);
       struct tm* timeinfo = std::localtime(&cftime);
-      TimeStamp ts;
-      ts.timePoint = std::chrono::system_clock::from_time_t(std::mktime(timeinfo));
+      TimeStamp ts(std::chrono::system_clock::from_time_t(std::mktime(timeinfo)));
       return ts;
     }
     void move_to(VirtualPath moveTo) {
       // Move this instance to a new location and apply changes.
       if (this->isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
       if (moveTo.isAt.empty())
-        EXIT_HERE("Target path is empty", HERE);
+        throw_up("Target path is empty (this: '", this->isAt.wstring(), "', target: '", moveTo.isAt.wstring(), "')");
       if (moveTo.type() != std::filesystem::file_type::directory)
-        EXIT_HERE(L"Target path '" + moveTo.isAt.wstring() + L"' is not a directory", HERE);
+        throw_up("Target path '", moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
       if (moveTo.isAt == this->isAt)
-        EXIT_HERE(L"Cannot move to the same path: " + this->isAt.wstring(), HERE);
+        throw_up("Cannot move to the same path: ", this->isAt.wstring());
       wstr_t willBecome = moveTo.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
       if (std::filesystem::exists(willBecome))
-        EXIT_HERE(L"Target path '" + willBecome + L"' already exists", HERE);
+        throw_up("Target path '", willBecome, "' already exists (this: '", this->isAt.wstring(), "')");
       std::filesystem::rename(this->isAt, willBecome);
       this->isAt = VirtualPath(willBecome).isAt; // Apply changes
     }
@@ -697,16 +751,16 @@ namespace cslib {
         a new VirtualPath instance pointing to the copied file.
       */
       if (this->isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
       if (targetDict.isAt.empty())
-        EXIT_HERE("Target path is empty", HERE);
+        throw_up("Target path is empty (this: '", this->isAt.wstring(), "', target: '", targetDict.isAt.wstring(), "')");
       if (targetDict.type() != std::filesystem::file_type::directory)
-        EXIT_HERE(L"Target path '" + targetDict.isAt.wstring() + L"' is not a directory", HERE);
+        throw_up("Target path '", targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
       if (targetDict.isAt == this->isAt)
-        EXIT_HERE(L"Cannot copy to the same path: " + this->isAt.wstring(), HERE);
+        throw_up("Cannot copy to the same path: ", this->isAt.wstring());
       wstr_t willBecome = targetDict.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
       if (std::filesystem::exists(willBecome))
-        EXIT_HERE(L"Element '" + willBecome + L"' already exists in target directory. Overwriting is avoided by default.", HERE);
+        throw_up("Element '", willBecome, "' already exists in target directory (this: '", this->isAt.wstring(), "')");
       std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
     }
@@ -726,7 +780,7 @@ namespace cslib {
     VirtualPath is; // Composition over inheritance
 
     File() = default;
-    File(wstr_t where) : is(where, std::filesystem::file_type::regular) {}
+    File(wstrsv_t where) : is(where, std::filesystem::file_type::regular) {}
 
     wstr_t content(std::ios_base::openmode openMode = std::ios::in) const {
       /*
@@ -735,29 +789,42 @@ namespace cslib {
           - No error-handling for files larger than available memory
       */
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for file at ", to_ptrstr(this));
       std::wifstream file(is.isAt, openMode);
       if (!file.is_open())
-        EXIT_HERE(L"Failed to open file '" + is.isAt.wstring() + L"'", HERE);
+        throw_up("Failed to open file '", is.isAt.wstring(), '\'');
       if (!file.good())
-        EXIT_HERE(L"Failed to read file '" + is.isAt.wstring() + L"'", HERE);
+        throw_up("Failed to read file '", is.isAt.wstring(), '\'');
       return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
+    }
+    std::string binary_content(std::ios_base::openmode openMode = std::ios::binary) const {
+      /*
+        Read the content of the file and return it as a binary string.
+        Note:
+          - No error-handling for files larger than available memory
+      */
+      if (is.isAt.empty())
+        throw_up("Uninitialized path for file at ", to_ptrstr(this));
+      std::ifstream file(is.isAt, openMode);
+      if (!file.is_open())
+        throw_up("Failed to open file '", is.isAt.wstring(), '\'');
+      if (!file.good())
+        throw_up("Failed to read file '", is.isAt.wstring(), '\'');
+      return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
     wstr_t wstr() const {
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for file at ", to_ptrstr(this));
       return is.isAt.wstring();
     }
     wstr_t extension() const {
-      // Get file extension with dot 
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for file at ", to_ptrstr(this));
       return is.isAt.extension().wstring();
     }
     size_t bytes() const {
-      // Get the file size in bytes.
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for file at ", to_ptrstr(this));
       return std::filesystem::file_size(is.isAt);
     }
   };
@@ -773,15 +840,15 @@ namespace cslib {
     VirtualPath is;
 
     Folder() = default;
-    Folder(wstr_t where) : is(where, std::filesystem::file_type::directory) {update();}
-    wstr_t str() const {
+    Folder(wstrsv_t where) : is(where, std::filesystem::file_type::directory) {update();}
+    wstr_t wstr() const {
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
       return is.isAt.wstring();
     }
     void update() {
       if (is.isAt.empty())
-        EXIT_HERE("Uninitialized path", HERE);
+        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
       content.clear();
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
         content.push_back(VirtualPath(entry.path().wstring()));
@@ -797,69 +864,6 @@ namespace cslib {
     // The stl is good but sometimes you need something smaller
 
     template <typename T>
-    class Optional { public: // TODO: Look into it further. Might not be necessary
-      /*
-        A small optional class that can hold a value or be empty.
-        Example:
-          Optional<int> opt;
-          opt.set(5);
-          if (opt.on())
-            std::cout << opt.cast() << '\n';
-      */
-      char storage[sizeof(T) + 1]; // extra byte for the flag
-      Optional() : storage{0} {}
-      T cast() const {
-        return *reinterpret_cast<const T *const>(storage);
-      }
-      bool on() const {
-        return storage[sizeof(T)];
-      }
-      void reset() {
-        if (on())
-          reinterpret_cast<T*>(storage)->~T();
-        storage[sizeof(T)] = 0;
-      }
-      void set(T value) {
-        if (on())
-          *reinterpret_cast<T*>(storage) = value;
-        else {
-          new (storage) T(value);
-          storage[sizeof(T)] = 1;
-        }
-      }
-      T& operator=(T value) {
-        set(value);
-        return *reinterpret_cast<T*>(storage);
-      }
-      T& get() {
-        if (!on())
-          EXIT_HERE("Uninitialized optional", HERE);
-        return *reinterpret_cast<T*>(storage);
-      }
-      ~Optional() {
-        if (on())
-          reinterpret_cast<T*>(storage)->~T();
-      }
-      // Operator stuff for access
-      T& operator*() {
-        if (!on())
-          EXIT_HERE("Uninitialized optional", HERE);
-        return *reinterpret_cast<T*>(storage);
-      }
-      T* operator->() {
-        if (!on())
-          EXIT_HERE("Uninitialized optional", HERE);
-        return reinterpret_cast<T*>(storage);
-      }
-      operator T() {
-        if (!on())
-          EXIT_HERE("Uninitialized optional", HERE);
-        return *reinterpret_cast<T*>(storage);
-      }
-    };
-
-
-    template <typename T>
     class Vector { public:
       /*
         Same as std::vector but smaller and less features.
@@ -867,11 +871,56 @@ namespace cslib {
           The size and capacity are 4 bytes each, when padding
           is done, memory-usage isn't doubled.
       */
+
       T* data;
       uint32_t size;
       uint32_t capacity;
+
       Vector() : data(nullptr), size(0), capacity(0) {}
+      Vector(uint32_t initialCapacity) : size(0), capacity(initialCapacity) {
+        if (initialCapacity == 0)
+          throw_up("Vector capacity must be greater than 0");
+        data = new T[initialCapacity];
+      }
+      Vector(std::initializer_list<T> initList) : size(initList.size()), capacity(initList.size()) {
+        // Copies whatever is in the initializer list
+        if (initList.size() == 0)
+          throw_up("Vector initializer list cannot be empty");
+        data = new T[initList.size()];
+        uint32_t index = 0;
+        for (const T& item : initList)
+          data[index++] = item;
+      }
+      Vector(const std::vector<T>& vec) : size(vec.size()), capacity(vec.capacity()) {
+        // Copies whatever is in the std::vector
+        if (vec.empty())
+          throw_up("Vector cannot be initialized from an empty std::vector");
+        data = new T[vec.size()];
+        uint32_t index = 0;
+        for (const T& item : vec)
+          data[index++] = item;
+      }
+      Vector(const Vector&) = delete; // No copy constructor
+      Vector& operator=(const Vector&) = delete; // No copy assignment operator
+      Vector(Vector&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
+        other.data = nullptr; // Prevent deletion of moved-from data
+        other.size = 0;
+        other.capacity = 0;
+      }
+      Vector& operator=(Vector&& other) noexcept {
+        if (this != &other) {
+          delete[] data;
+          data = other.data;
+          size = other.size;
+          capacity = other.capacity;
+          other.data = nullptr; // Prevent deletion of moved-from data
+          other.size = 0;
+          other.capacity = 0;
+        }
+        return *this;
+      }
       ~Vector() { delete[] data; }
+
       T* begin() { return data; }
       T* end() { return data + size; }
       void increment_capacity() {
@@ -889,12 +938,12 @@ namespace cslib {
       }
       T& operator[](uint32_t index) {
         if (index >= size)
-          EXIT_HERE("Index out of bounds: " + to_wstr(index) + L" >= " + to_wstr(size), HERE);
+          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", index, " >= ", size);
         return data[index];
       }
       void pop_back() {
         if (size == 0)
-          EXIT_HERE("Cannot pop from an empty vector", HERE);
+          throw_up("Cannot pop from an empty vector at ", to_ptrstr(this));
         --size;
       }
     };
@@ -916,15 +965,31 @@ namespace cslib {
           // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
           for something else earlier but ignored after null-termination)}
       */
-
       static_assert(N > 0, "String size must be greater than 0");
 
       char data[N] = {'\0'};
 
       String() = default;
-      String(std::string str) {
+      String(std::string_view str) {
         for (char c : str)
           append(c);
+      }
+      template <uint8_t ON> // Other N
+      String(const String<ON>&) = delete;
+      template <uint8_t ON>
+      String& operator=(const String<ON>&) = delete;
+      String(String&& other) noexcept {
+        for (uint8_t i = 0; i < N; ++i)
+          data[i] = other.data[i];
+        other.clear();
+      }
+      String& operator=(String&& other) noexcept {
+        if (this != &other) {
+          for (uint8_t i = 0; i < N; ++i)
+            data[i] = other.data[i];
+          other.clear();
+        }
+        return *this;
       }
 
       uint8_t length() {
@@ -936,7 +1001,7 @@ namespace cslib {
       void append(char c) {
         uint8_t size = length();
         if (size >= N)
-          EXIT_HERE("String capacity exceeded: " + to_str(N), HERE);
+          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", N);
         data[size] = c;
         if (size + 1 < N)
           data[size + 1] = '\0';
@@ -946,7 +1011,7 @@ namespace cslib {
       }
       char& at(uint8_t index) {
         if (index >= N)
-          EXIT_HERE("Index out of bounds: " + to_str(index) + " >= " + to_str(N), HERE);
+          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", N);
         return data[index];
       }
       char* begin() {return data;}
@@ -960,8 +1025,8 @@ namespace cslib {
       bool operator==(String other) {
         return this->std_str() == other.std_str();
       }
-      bool operator==(std::string other) {
-        return this->std_str() == other;
+      bool operator==(std::string_view other) {
+        return this->std_str() == other.data();
       }
     };
     template <uint8_t N>
@@ -977,7 +1042,6 @@ namespace cslib {
           // str3 = {L'H', L'i', L'\0', L'm' (L'm' could have been used
           for something else earlier but ignored after null-termination)}
       */
-
       static_assert(N > 0, "Wstring size must be greater than 0");
 
       wchar_t data[N] = {L'\0'};
@@ -986,6 +1050,24 @@ namespace cslib {
       Wstring(std::wstring str) {
         for (wchar_t c : str)
           append(c);
+      }
+      template <uint8_t ON> // Other N
+      Wstring(const Wstring<ON>&) = delete;
+      template <uint8_t ON>
+      Wstring& operator=(const Wstring<ON>&) = delete;
+      Wstring(Wstring&& other) noexcept {
+        // Move constructor
+        for (uint8_t i = 0; i < N; ++i)
+          data[i] = other.data[i];
+        other.clear();
+      }
+      Wstring& operator=(Wstring&& other) noexcept {
+        if (this != &other) {
+          for (uint8_t i = 0; i < N; ++i)
+            data[i] = other.data[i];
+          other.clear();
+        }
+        return *this;
       }
 
       uint8_t length() {
@@ -997,7 +1079,7 @@ namespace cslib {
       void append(wchar_t c) {
         uint8_t size = length();
         if (size >= N)
-          EXIT_HERE("Wstring capacity exceeded: " + to_str(N), HERE);
+          throw_up("Wstring (", to_ptrstr(this), ") capacity exceeded: ", N);
         data[size] = c;
         if (size + 1 < N)
           data[size + 1] = L'\0';
@@ -1007,7 +1089,7 @@ namespace cslib {
       }
       wchar_t& at(uint8_t index) {
         if (index >= N)
-          EXIT_HERE("Index out of bounds: " + to_str(index) + " >= " + to_str(N), HERE);
+          throw_up("Index out of bounds for Wstring at ", to_ptrstr(this), ": ", index, " >= ", N);
         return data[index];
       }
       wchar_t* begin() {return data;}
@@ -1026,22 +1108,41 @@ namespace cslib {
       /*
         A TinySTL::Vector that holds key-value pairs.
       */
-
       struct Node {
         K key;
         V value;
       };
+
       Vector<Node> data;
+
+      Map() = default;
+      Map(size_t initialCapacity) : data(initialCapacity) {
+        if (initialCapacity == 0)
+          throw_up("Map capacity must be greater than 0");
+      }
+      Map(const Map&) = delete;
+      Map& operator=(const Map&) = delete;
+      Map(Map&& other) noexcept : data(std::move(other.data)) {
+        other.data = Vector<Node>();
+      }
+      Map& operator=(Map&& other) noexcept {
+        if (this != &other) {
+          data = std::move(other.data);
+          other.data = Vector<Node>();
+        }
+        return *this;
+      }
+
       void insert(K key, V value) {
         if (contains(key))
-          EXIT_HERE("Key already exists", HERE);
+          throw_up("Key already exists for Map at ", to_ptrstr(this));
         data.push_back({key, value});
       }
       V& at(K key) {
         for (Node& node : data)
           if (node.key == key)
             return node.value;
-        EXIT_HERE("Key not found", HERE);
+        throw_up("Key not found for Map at ", to_ptrstr(this));
       }
       V& operator[](K key) {
         return at(key);

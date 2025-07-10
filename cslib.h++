@@ -60,10 +60,23 @@ namespace cslib {
 
 
 
-  // Functions
-  void pause(size_t ms) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+  // Defined beforehand to avoid circular dependencies
+  template <typename... Args>
+  std::runtime_error up_impl(size_t line, Args&&... messages) {
+    /*
+      Create a custom runtime error with the given messages.
+      Example:
+        #define up(...) up_impl(__LINE__, __VA_ARGS__)
+        if (1 == 2)
+          throw up("Hello", "World", 123, L"Wide string");
+    */
+    wstr_t message;
+    ((message += to_wstr(std::forward<Args>(messages))), ...);
+    std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
+    std::filesystem::path currentPath = std::filesystem::current_path();
+    return std::runtime_error("std::runtime_error called from line " + std::to_string(line) + " in workspace '" + currentPath.string() + "'");
   }
+  #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
 
 
 
@@ -156,6 +169,607 @@ namespace cslib {
 
 
 
+  // Pillar namespace
+  namespace TinySTL {
+    // The stl is good but sometimes you need something smaller
+
+    template <typename T>
+    class Vector { public:
+      /*
+        Same as std::vector but smaller and less features.
+        Note:
+          The size and capacity are 4 bytes each, when padding
+          is done, memory-usage isn't doubled
+      */
+
+      T* data;
+      uint32_t size;
+      uint32_t capacity;
+
+      void wipe_clean() {
+        /*
+          Call destructor on all elements and
+          and reset the vector
+        */
+        if (data == nullptr)
+          return;
+        delete[] data;
+        data = nullptr;
+        size = 0;
+        capacity = 0;
+      }
+      T* begin() { return data; }
+      T* end() { return data + size; }
+      const T* begin() const { return data; }
+      const T* end() const { return data + size; }
+      void increment_capacity() {
+        T* new_data = new T[++capacity];
+        size = -1;
+        for (T& ownData : *this)
+          new_data[++size] = ownData;
+        delete[] data;
+        data = new_data;
+      }
+      void push_back(T&& value) {
+        if (size == capacity)
+          increment_capacity();
+        data[++size] = std::move(value);
+      }
+      void push_back(const T& value) {
+        if (size == capacity)
+          increment_capacity();
+        data[++size] = value;
+      }
+      template <typename... Args>
+      void emplace_back(Args&&... args) {
+        if (size == capacity)
+          increment_capacity();
+        data[++size] = T(std::forward<Args>(args)...);
+      }
+      void pop_back() {
+        if (size == 0)
+          throw_up("Cannot pop from an empty vector at ", to_ptrstr(this));
+        --size;
+      }
+      ~Vector() {
+        if (data != nullptr)
+          delete[] data;
+      }
+      T& operator[](uint32_t index) {
+        if (index >= size)
+          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", index, " >= ", size);
+        return data[index];
+      }
+      bool operator==(const Vector<T>& other) const {
+        if (size != other.size)
+          return false;
+        for (uint32_t i = 0; i < size; ++i)
+          if (data[i] != other.data[i])
+            return false;
+        return true;
+      }
+      bool operator!=(const Vector<T>& other) const {
+        return !(*this == other);
+      }
+
+      // Transform into stl container
+      operator std::vector<T>() const { // Copy
+        std::vector<T> vec;
+        vec.reserve(size);
+        for (const T& item : *this)
+          vec.push_back(item);
+        return vec;
+      }
+      operator std::vector<T>&&() { // Move
+        std::vector<T> vec;
+        vec.reserve(size);
+        for (T& item : *this)
+          vec.push_back(std::move(item));
+        return std::move(vec);
+      }
+      operator std::vector<T>&() { // Reference
+        std::vector<T> vec;
+        vec.reserve(size);
+        for (T& item : *this)
+          vec.push_back(std::move(item));
+        return vec;
+      }
+      operator std::vector<T>*() { // Pointer
+        std::vector<T> vec;
+        vec.reserve(size);
+        for (T& item : *this)
+          vec.push_back(std::move(item));
+        return new std::vector<T>(std::move(vec));
+      }
+      operator std::vector<T>*() const { // Const pointer
+        std::vector<T> vec;
+        vec.reserve(size);
+        for (const T& item : *this)
+          vec.push_back(item);
+        return new std::vector<T>(std::move(vec));
+      }
+
+      // Standard constructors
+      Vector() : data(nullptr), size(0), capacity(0) {}
+      Vector(uint32_t initialCapacity) : size(0), capacity(initialCapacity) {
+        if (initialCapacity == 0)
+          throw_up("Vector capacity must be greater than 0");
+        data = new T[initialCapacity];
+      }
+      Vector(std::initializer_list<T> initList) : size(initList.size()), capacity(initList.size()) {
+        // Copies whatever is in the initializer list
+        if (initList.size() == 0)
+          throw_up("Vector initializer list cannot be empty");
+        data = new T[initList.size()];
+        uint32_t index = -1;
+        for (const T& item : initList)
+          data[++index] = item;
+      }
+      Vector(const std::vector<T>& vec) : size(vec.size()), capacity(vec.capacity()) {
+        if (vec.empty())
+          throw_up("Vector cannot be initialized from an empty std::vector");
+        data = new T[vec.size()];
+        uint32_t index = -1;
+        for (const T& item : vec)
+          data[++index] = item;
+      }
+      Vector(std::vector<T>&& vec) : size(vec.size()), capacity(vec.capacity()) {
+        if (vec.empty())
+          throw_up("Vector cannot be initialized from an empty std::vector");
+        data = new T[vec.size()];
+        uint32_t index = -1;
+        for (T& item : vec)
+          data[++index] = item;
+      }
+
+      // Copy operations
+      Vector(const Vector& other) : size(other.size), capacity(other.capacity) {
+        if (other.data == nullptr)
+          throw_up("Cannot copy from an empty vector at ", to_ptrstr(&other));
+        data = new T[capacity];
+        uint32_t index = -1;
+        for (const T& item : other)
+          data[++index] = item;
+      }
+      Vector& operator=(const Vector& other) {
+        if (this != &other) {
+          this->wipe_clean();
+          size = other.size;
+          capacity = other.capacity;
+          if (other.data == nullptr)
+            throw_up("Cannot copy from an empty vector at ", to_ptrstr(&other));
+          data = new T[capacity];
+          uint32_t index = -1;
+          for (const T& item : other)
+            data[++index] = item;
+        }
+        return *this;
+      }
+      // Move operations
+      Vector(Vector&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
+        other.data = nullptr;
+        other.size = 0;
+        other.capacity = 0;
+      }
+      Vector& operator=(Vector&& other) noexcept {
+        if (this != &other) {
+          delete[] data;
+          data = other.data;
+          size = other.size;
+          capacity = other.capacity;
+          // No need to call wipe_clean() here
+
+          other.data = nullptr;
+          other.size = 0;
+          other.capacity = 0;
+        }
+        return *this;
+      }
+    };
+
+
+
+    template <size_t N, typename char_t = wchar_t>
+    class String { public:
+      /*
+        Static fixed size string. It can hold up to `N` characters and is
+        only null-terminated when cslib::String's capacity isn't maxed.
+        If it is, the size-limit acts as a terminator.
+        Example:
+          String<2> str("Hi");
+          // str = {'H', 'i'}
+          String<3> str2("Hi");
+          // str2 = {'H', 'i', '\0'}
+          String<4> str3("Hi");
+          // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
+          for something else earlier but ignored after null-termination)}
+      */
+      static_assert(N > 0, "String size must be greater than 0");
+
+      char_t data[N] = {0};
+
+      size_t length() {
+        /*
+          Returns the length of the string.
+          Note:
+            This is not the capacity, but the actual length of the string.
+        */
+        size_t len = 0;
+        while (data[len] != 0 and len < N)
+          ++len;
+        return len;
+      }
+      char_t* begin() { return data; }
+      char_t* end() { return data + length(); }
+      const char_t* begin() const { return data; }
+      const char_t* end() const { return data + length(); }
+      void append(const char_t& c) {
+        size_t len = length();
+        if (len >= N)
+          throw_up("String (", to_ptrstr(this), ") containing '", to_str(*this), "' capacity exceeded: ", N);
+        data[len] = c;
+        if (len + 1 < N)
+          data[len + 1] = 0;
+      }
+      void empty() {
+        data = {0};
+      }
+      char_t& at(size_t index) {
+        if (index >= N)
+          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", N);
+        return data[index];
+      }
+      bool operator==(const String<N, char_t>& other) const {
+        if (length() != other.length())
+          return false;
+        for (size_t i = 0; i < length(); ++i)
+          if (data[i] != other.data[i])
+            return false;
+        return true;
+      }
+      bool operator!=(const String<N, char_t>& other) const {
+        return !(*this == other);
+      }
+
+      // Transform into stl classes (lossy conversion for chars)
+      operator std::string() const { // Copy
+        return std::string(data, data + length());
+      }
+      operator std::string&&() { // Move
+        return std::move(std::string(*this));
+      }
+      operator std::string&() { // Reference
+        return std::move(std::string(*this));
+      }
+      operator std::string*() { // Pointer
+        return new std::string(*this);
+      }
+      operator std::string*() const { // Const pointer
+        return new std::string(*this);
+      }
+      operator std::wstring() const { // Copy
+        return std::wstring(data, data + length());
+      }
+      operator std::wstring&&() { // Move
+        return std::move(std::wstring(*this));
+      }
+      operator std::wstring&() { // Reference
+        return std::move(std::wstring(*this));
+      }
+      operator std::wstring*() { // Pointer
+        return new std::wstring(*this);
+      }
+      operator std::wstring*() const { // Const pointer
+        return new std::wstring(*this);
+      }
+      friend std::ostream& operator<<(std::ostream& os, const String<N, char_t>& str) {
+        /*
+          Print the string to an output stream.
+          Example:
+            std::cout << cslib::String<5>("Hello") << std::endl;
+        */
+        return os << std::string(str.data, str.data + str.length());
+      }
+      friend std::wostream& operator<<(std::wostream& os, const String<N, char_t>& str) {
+        /*
+          Print the wide string to an output stream.
+          Example:
+            std::wcout << cslib::String<5>(L"Hello") << std::endl;
+        */
+        return os << std::wstring(str.data, str.data + str.length());
+      }
+
+      // Standard constructors
+      String() = default;
+      String(std::string_view otherStr) {
+        /*
+          Initialize the string with a std::string_view.
+          Note:
+            This is a lossy conversion, as char_t can represent characters
+            that cannot be represented in a single byte string.
+            Use with caution, as it may lead to data loss.
+        */
+        if (otherStr.size() >= N)
+          throw_up("Constructing string view '", to_str(otherStr), "' with size ", otherStr.size(), " exceeds capacity ", N);
+        size_t index = -1;
+        for (char c : otherStr)
+          data[++index] = char_t(c);
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+      String(wstrsv_t otherWstr) {
+        if (otherWstr.size() >= N)
+          throw_up("Constructing string view '", to_str(otherWstr), "' with size ", otherWstr.size(), " exceeds capacity ", N);
+        size_t index = -1;
+        for (wchar_t c : otherWstr)
+          data[++index] = char_t(c);
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+      String(const char_t* otherStr) {
+        size_t index = -1;
+        while (otherStr[++index] != 0 and index < N)
+          data[index] = otherStr[index];
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+
+      // Copy operations
+      String(const String<N, char_t>& other) {
+        if (other.length() >= N)
+          throw_up("Copying string '", to_str(other), "' with size ", other.length(), " exceeds capacity ", N);
+        size_t index = -1;
+        for (const char_t& c : other)
+          data[++index] = c;
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+      String<N, char_t>& operator=(const String<N, char_t>& other) {
+        if (this != &other) {
+          this->empty();
+          if (other.length() >= N)
+            throw_up("Copying string '", to_str(other), "' with size ", other.length(), " exceeds capacity ", N);
+          size_t index = -1;
+          for (const char_t& c : other)
+            data[++index] = c;
+          if (index + 1 < N)
+            data[++index] = 0;
+        }
+        return *this;
+      }
+      // Move operations
+      String(String<N, char_t>&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
+        other.data = {0};
+        other.size = 0;
+        other.capacity = 0;
+      }
+      String<N, char_t>& operator=(String<N, char_t>&& other) noexcept {
+        if (this != &other) {
+          this->empty();
+          data = other.data;
+          size = other.size;
+          capacity = other.capacity;
+
+          other.data = {0};
+          other.size = 0;
+          other.capacity = 0;
+        }
+        return *this;
+      }
+    };
+
+
+
+    template <typename K, typename V>
+    class Map { public:
+      /*
+        A simple map implementation using a vector of key-value pairs.
+        Note:
+          This is not a hash map, so it is not as efficient as std::unordered_map.
+          It is meant for small maps where memory is preferred over speed.
+      */
+
+      struct Node {
+        K key;
+        V value;
+      };
+
+      Vector<Node> data;
+
+      std::pair<K, V>* begin() { return reinterpret_cast<std::pair<K, V>*>(data.begin()); }
+      std::pair<K, V>* end() { return reinterpret_cast<std::pair<K, V>*>(data.end()); }
+      const std::pair<K, V>* begin() const { return reinterpret_cast<const std::pair<K, V>*>(data.begin()); }
+      const std::pair<K, V>* end() const { return reinterpret_cast<const std::pair<K, V>*>(data.end()); }
+      void wipe_clean() {
+        data.wipe_clean();
+      }
+      void insert(const K& key, const V& value) {
+        for (Node& node : data) {
+          if (node.key == key) {
+            node.value = value;
+            return;
+          }
+        }
+        data.push_back({key, value});
+      }
+      void insert(K&& key, V&& value) {
+        for (Node& node : data) {
+          if (node.key == key) {
+            node.value = std::move(value);
+            return;
+          }
+        }
+        data.push_back({std::move(key), std::move(value)});
+      }
+      void insert(const std::pair<K, V>& pair) {
+        insert(pair.first, pair.second);
+      }
+      void insert(std::pair<K, V>&& pair) {
+        insert(std::move(pair.first), std::move(pair.second));
+      }
+      bool has_key(const K& key) const {
+        for (const Node& node : data)
+          if (node.key == key)
+            return true;
+        return false;
+      }
+      bool has_key(K&& key) const {
+        for (const Node& node : data)
+          if (node.key == key)
+            return true;
+        return false;
+      }
+      bool has_value(const V& value) const {
+        for (const Node& node : data)
+          if (node.value == value)
+            return true;
+        return false;
+      }
+      bool has_value(V&& value) const {
+        for (const Node& node : data)
+          if (node.value == value)
+            return true;
+        return false;
+      }
+      V& operator[](const K& key) {
+        for (Node& node : data)
+          if (node.key == key)
+            return node.value;
+        data.push_back({key, V()});
+        return data.back().value;
+      }
+      V& operator[](K&& key) {
+        for (Node& node : data)
+          if (node.key == key)
+            return node.value;
+        data.push_back({std::move(key), V()});
+        return data.back().value;
+      }
+      std::vector<K> keys() const {
+        /*
+          Returns a vector of all keys in the map.
+        */
+        std::vector<K> keys;
+        for (const Node& node : data)
+          keys.push_back(node.key);
+        return keys;
+      }
+
+      // Transform into stl classes
+      operator std::unordered_map<K, V>() const { // Copy
+        std::unordered_map<K, V> map;
+        for (const Node& node : data)
+          map[node.key] = node.value;
+        return map;
+      }
+      operator std::unordered_map<K, V>&&() { // Move
+        std::unordered_map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return std::move(map);
+      }
+      operator std::unordered_map<K, V>&() { // Reference
+        std::unordered_map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return map;
+      }
+      operator std::unordered_map<K, V>*() { // Pointer
+        std::unordered_map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return new std::unordered_map<K, V>(std::move(map));
+      }
+      operator std::unordered_map<K, V>*() const { // Const pointer
+        std::unordered_map<K, V> map;
+        for (const Node& node : data)
+          map[node.key] = node.value;
+        return new std::unordered_map<K, V>(std::move(map));
+      }
+      operator std::map<K, V>() const { // Copy
+        std::map<K, V> map;
+        for (const Node& node : data)
+          map[node.key] = node.value;
+        return map;
+      }
+      operator std::map<K, V>&&() { // Move
+        std::map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return std::move(map);
+      }
+      operator std::map<K, V>&() { // Reference
+        std::map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return map;
+      }
+      operator std::map<K, V>*() { // Pointer
+        std::map<K, V> map;
+        for (Node& node : data)
+          map[std::move(node.key)] = std::move(node.value);
+        return new std::map<K, V>(std::move(map));
+      }
+      operator std::map<K, V>*() const { // Const pointer
+        std::map<K, V> map;
+        for (const Node& node : data)
+          map[node.key] = node.value;
+        return new std::map<K, V>(std::move(map));
+      }
+
+      // Standard constructors
+      Map() = default;
+      Map(std::initializer_list<std::pair<K, V>> initList) {
+        for (const auto& pair : initList)
+          insert(pair.first, pair.second);
+      }
+      Map(const std::unordered_map<K, V>& map) {
+        for (const auto& pair : map)
+          insert(pair.first, pair.second);
+      }
+      Map(std::unordered_map<K, V>&& map) {
+        for (auto& pair : map)
+          insert(std::move(pair.first), std::move(pair.second));
+      }
+      Map(const std::map<K, V>& map) {
+        for (const auto& pair : map)
+          insert(pair.first, pair.second);
+      }
+      Map(std::map<K, V>&& map) {
+        for (auto& pair : map)
+          insert(std::move(pair.first), std::move(pair.second));
+      }
+      Map(const Map<K, V>& other) : data(other.data) {}
+      Map<K, V>& operator=(const Map<K, V>& other) {
+        if (this != &other) {
+          this->wipe_clean();
+          data = other.data;
+        }
+        return *this;
+      }
+      Map(Map<K, V>&& other) noexcept : data(std::move(other.data)) {
+        other.data.wipe_clean();
+      }
+      Map<K, V>& operator=(Map<K, V>&& other) noexcept {
+        if (this != &other) {
+          this->wipe_clean();
+          data = std::move(other.data);
+          other.data.wipe_clean();
+        }
+        return *this;
+      }
+    };
+  };
+
+
+
+  // Functions
+  void pause(size_t ms) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+  }
+
+
+
   template <typename T>
   void print(const T& msg) {
     std::wcout << msg << std::flush;
@@ -163,18 +777,6 @@ namespace cslib {
   template <typename T>
   void print(T&& msg) {
     std::wcout << std::forward<T>(msg) << std::flush;
-  }
-  void print(const char *const msg) {
-    std::wcout << to_wstr(msg) << std::flush;
-  }
-  void print(const std::string& msg) {
-    std::wcout << to_wstr(msg) << std::flush;
-  }
-  void print(std::string&& msg) {
-    std::wcout << to_wstr(std::move(msg)) << std::flush;
-  }
-  void print(std::string_view msg) {
-    std::wcout << to_wstr(msg) << std::flush;
   }
 
   template <typename T>
@@ -185,37 +787,6 @@ namespace cslib {
   void println(T&& msg) {
     std::wcout << std::forward<T>(msg) << std::endl;
   }
-  void println(const char *const msg) {
-    std::wcout << to_wstr(msg) << std::endl;
-  }
-  void println(const std::string& msg) {
-    std::wcout << to_wstr(msg) << std::endl;
-  }
-  void println(std::string&& msg) {
-    std::wcout << to_wstr(std::move(msg)) << std::endl;
-  }
-  void println(std::string_view msg) {
-    std::wcout << to_wstr(msg) << std::endl;
-  }
-
-
-
-  template <typename... Args>
-  std::runtime_error up_impl(size_t line, Args&&... messages) {
-    /*
-      Create a custom runtime error with the given messages.
-      Example:
-        #define up(...) up_impl(__LINE__, __VA_ARGS__)
-        if (1 == 2)
-          throw up("Hello", "World", 123, L"Wide string");
-    */
-    wstr_t message;
-    ((message += to_wstr(std::forward<Args>(messages))), ...);
-    std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
-    std::filesystem::path currentPath = std::filesystem::current_path();
-    return std::runtime_error("std::runtime_error called from line " + std::to_string(line) + " in workspace '" + currentPath.string() + "'");
-  }
-  #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
 
 
 
@@ -271,12 +842,12 @@ namespace cslib {
 
 
 
-  std::vector<int> range(int start, int end) {
+  TinySTL::Vector<int> range(int start, int end) {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (inclusive)
     */
-    std::vector<int> result;
+    TinySTL::Vector<int> result;
     if (start > end) // reverse
       for (int i = start; i >= end; --i)
         result.push_back(i);
@@ -287,11 +858,11 @@ namespace cslib {
       result.push_back(start);
     return result;
   }
-  std::vector<int> range(int end) {
+  TinySTL::Vector<int> range(int end) {
     return range(0, end);
   }
-  std::vector<size_t> range(size_t start, size_t end) {
-    std::vector<size_t> result;
+  TinySTL::Vector<size_t> range(size_t start, size_t end) {
+    TinySTL::Vector<size_t> result;
     if (start > end) // reverse
       for (size_t i = start; i >= end; --i)
         result.push_back(i);
@@ -302,7 +873,7 @@ namespace cslib {
       result.push_back(start);
     return result;
   }
-  std::vector<size_t> range(size_t end) {
+  TinySTL::Vector<size_t> range(size_t end) {
     return range(size_t(0), end);
   }
 
@@ -343,14 +914,14 @@ namespace cslib {
 
 
 
-  std::vector<std::string> parse_cli_args(int argc, const char *const argv[]) {
+  TinySTL::Vector<std::string_view> parse_cli_args(int argc, const char *const argv[]) {
     /*
       Parse command line arguments and return them as a
       vector of strings.
       Note:
         The first argument is the program name, so we skip it
     */
-    std::vector<std::string> args;
+    TinySTL::Vector<std::string_view> args;
     if (argc <= 1)
       return args; // No arguments provided
     for (int i : range(1, argc - 1))
@@ -424,14 +995,14 @@ namespace cslib {
 
 
 
-  std::vector<wstr_t> separate(wstrsv_t wstrsv, wchar_t delimiter) {
+  TinySTL::Vector<wstr_t> separate(wstrsv_t wstrsv, wchar_t delimiter) {
     /*
       Same as above, but for wide strings.
       Example:
         cslib::separate(L"Hello World", ' ') // {"Hello", "World"}
     */
     wstr_t str(wstrsv);
-    std::vector<wstr_t> result;
+    TinySTL::Vector<wstr_t> result;
     wstr_t temp;
 
     if (str.empty() or delimiter == L'\0')
@@ -482,7 +1053,7 @@ namespace cslib {
     // Set all io-streaming globally to UTF-8 encoding
 
     // Get the first available UTF-8 locale
-    const std::vector<std::string_view> utf8_locales = {
+    const TinySTL::Vector<std::string_view> utf8_locales = {
       "en_US.UTF-8",
       "en_US.utf8",
       "C.UTF-8",
@@ -548,7 +1119,7 @@ namespace cslib {
       prefix += L" ";
     }
     template <typename T>
-    std::wostream& operator<<(const T& msg) {
+    std::wostream& operator<<(const T& msg) const {
       /*
         Print to console with the given prefix
         Example:
@@ -558,15 +1129,17 @@ namespace cslib {
       std::wcout << prefix << msg << std::flush;
       return std::wcout;
     }
-    std::wostream& operator<<(const std::string& msg) = delete;
-    std::wostream& operator<<(const std::string_view& msg) = delete;
-    std::wostream& operator<<(const char* msg) = delete;
-    /*
-      Syncing two streambuffers are unreliable and
-      requires a lot of workarounds. Enforcing wchar_t
-      allocated stream buffers is more unified and
-      easier to use
-    */
+    template <typename T>
+    std::wostream& operator<<(T&& msg) const {
+      /*
+        Print to console with the given prefix
+        Example:
+          cslib::Out out(L"Info: ", GREEN);
+          out << "This is an info message" << std::endl;
+      */
+      std::wcout << prefix << std::forward<T>(msg) << std::flush;
+      return std::wcout;
+    }
   };
 
 
@@ -576,6 +1149,32 @@ namespace cslib {
     std::chrono::system_clock::time_point timePoint;
     TimeStamp() {update();}
     TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
+    TimeStamp(uint sec, uint min, uint hour, uint day, uint month, uint year) {
+      /*
+        Create a time stamp from the given date and time
+        after making sure that the date is valid.
+      */
+      // Determine date
+      std::chrono::year_month_day ymd{
+        std::chrono::year(year),
+        std::chrono::month(month),
+        std::chrono::day(day)
+      };
+      if (!ymd.ok())
+        throw_up("Invalid date: ", year, "-", month, "-", day);
+      // Determine time
+      if (hour >= 24 or min >= 60 or sec >= 60)
+        throw_up("Invalid time: ", hour, ":", min, ":", sec);
+      std::chrono::hh_mm_ss hms{
+        std::chrono::hours(hour) +
+        std::chrono::minutes(min) +
+        std::chrono::seconds(sec)
+      };
+      // Combine date and time into a time point
+      timePoint = std::chrono::system_clock::time_point(
+        std::chrono::sys_days(ymd).time_since_epoch() + hms.to_duration()
+      );
+    }
     void update() {
       timePoint = std::chrono::system_clock::now();
     }
@@ -586,6 +1185,36 @@ namespace cslib {
       */
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
       return (std::wstringstream() << std::put_time(std::gmtime(&time), L"%Y-%m-%d %H:%M:%S")).str();
+    }
+    uint get_year() const {
+      auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
+      return uint(int(ymd.year()));
+    }
+    uint get_month() const {
+      auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
+      return uint(ymd.month());
+    }
+    uint get_day() const {
+      auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
+      return uint(ymd.day());
+    }
+    uint get_hour() const {
+      auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
+      auto time_since_midnight = timePoint - day_point;
+      auto hms = std::chrono::hh_mm_ss(time_since_midnight);
+      return uint(hms.hours().count());
+    }
+    uint get_minute() const {
+      auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
+      auto time_since_midnight = timePoint - day_point;
+      auto hms = std::chrono::hh_mm_ss(time_since_midnight);
+      return uint(hms.minutes().count());
+    }
+    uint get_second() const {
+      auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
+      auto time_since_midnight = timePoint - day_point;
+      auto hms = std::chrono::hh_mm_ss(time_since_midnight);
+      return uint(hms.seconds().count());
     }
   };
   void sleep_until(const TimeStamp& untilPoint) {
@@ -671,6 +1300,11 @@ namespace cslib {
       }
     }
 
+    wstr_t wstr() const {
+      if (isAt.empty())
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
+      return isAt.wstring();
+    }
     std::filesystem::file_type type() const {
       /*
         Returns the type of the path.
@@ -764,6 +1398,12 @@ namespace cslib {
       std::filesystem::copy(this->isAt, willBecome);
       return VirtualPath(willBecome);
     }
+    bool operator==(const VirtualPath& other) const {
+      return this->isAt == other.isAt;
+    }
+    bool operator!=(const VirtualPath& other) const {
+      return !(*this == other);
+    }
   };
 
 
@@ -828,6 +1468,33 @@ namespace cslib {
       return std::filesystem::file_size(is.isAt);
     }
   };
+  class TempFile { public:
+    /*
+      A temporary file that is created in the system's temporary directory.
+      It will be deleted when the object is destroyed.
+      Example:
+        TempFile tempFile;
+        tempFile.write("Hello World");
+        std::string content = tempFile.read();
+        // content = "Hello World"
+    */
+    static FIXED wstr_t TEMP_FILE_HEAD = L"cslibTempFile_";
+    static MACRO TEMP_FILE_RAND_NAME_LENGTH = 255 - TEMP_FILE_HEAD.length() - 4; // 4 for the extension
+    File file;
+
+    TempFile(wstr_t extension = L"tmp") {
+      /*
+        Create a temporary file in the system's temporary directory.
+        The file will be deleted when the object is destroyed.
+        File name is generated based on random characters
+      */
+      Folder tempDir(std::filesystem::temp_directory_path().wstring());
+      wstr_t randomName;
+      for (size_t i : range(TEMP_FILE_RAND_NAME_LENGTH))
+        randomName += wchar_t(roll_dice('a', 'z')); // A-Z
+      randomName += L'.' + extension;
+    }
+  };
 
 
 
@@ -846,6 +1513,29 @@ namespace cslib {
         throw_up("Uninitialized path for folder at ", to_ptrstr(this));
       return is.isAt.wstring();
     }
+    bool has(const VirtualPath& item) const {
+      /*
+        Check if the folder contains the given item.
+        Example:
+          Folder folder("/gitstuff/cslib");
+          VirtualPath item("/gitstuff/cslib/cslib.h++");
+          bool exists = folder.has(item);
+          // exists = true
+      */
+      if (is.isAt.empty())
+        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      return contains(content, item);
+    }
+    bool has(const File& item) const {
+      if (is.isAt.empty())
+        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      return contains(content, item.is);
+    }
+    bool has(const Folder& item) const {
+      if (is.isAt.empty())
+        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      return contains(content, item.is);
+    }
     void update() {
       if (is.isAt.empty())
         throw_up("Uninitialized path for folder at ", to_ptrstr(this));
@@ -854,311 +1544,5 @@ namespace cslib {
         content.push_back(VirtualPath(entry.path().wstring()));
       content.shrink_to_fit();
     }
-  };
-
-
-
-
-  // Namespaces
-  namespace TinySTL {
-    // The stl is good but sometimes you need something smaller
-
-    template <typename T>
-    class Vector { public:
-      /*
-        Same as std::vector but smaller and less features.
-        Note:
-          The size and capacity are 4 bytes each, when padding
-          is done, memory-usage isn't doubled.
-      */
-
-      T* data;
-      uint32_t size;
-      uint32_t capacity;
-
-      Vector() : data(nullptr), size(0), capacity(0) {}
-      Vector(uint32_t initialCapacity) : size(0), capacity(initialCapacity) {
-        if (initialCapacity == 0)
-          throw_up("Vector capacity must be greater than 0");
-        data = new T[initialCapacity];
-      }
-      Vector(std::initializer_list<T> initList) : size(initList.size()), capacity(initList.size()) {
-        // Copies whatever is in the initializer list
-        if (initList.size() == 0)
-          throw_up("Vector initializer list cannot be empty");
-        data = new T[initList.size()];
-        uint32_t index = 0;
-        for (const T& item : initList)
-          data[index++] = item;
-      }
-      Vector(const std::vector<T>& vec) : size(vec.size()), capacity(vec.capacity()) {
-        // Copies whatever is in the std::vector
-        if (vec.empty())
-          throw_up("Vector cannot be initialized from an empty std::vector");
-        data = new T[vec.size()];
-        uint32_t index = 0;
-        for (const T& item : vec)
-          data[index++] = item;
-      }
-      Vector(const Vector&) = delete; // No copy constructor
-      Vector& operator=(const Vector&) = delete; // No copy assignment operator
-      Vector(Vector&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
-        other.data = nullptr; // Prevent deletion of moved-from data
-        other.size = 0;
-        other.capacity = 0;
-      }
-      Vector& operator=(Vector&& other) noexcept {
-        if (this != &other) {
-          delete[] data;
-          data = other.data;
-          size = other.size;
-          capacity = other.capacity;
-          other.data = nullptr; // Prevent deletion of moved-from data
-          other.size = 0;
-          other.capacity = 0;
-        }
-        return *this;
-      }
-      ~Vector() { delete[] data; }
-
-      T* begin() { return data; }
-      T* end() { return data + size; }
-      void increment_capacity() {
-        T* new_data = new T[++capacity];
-        size = -1;
-        for (T& ownData : *this)
-          new_data[++size] = ownData;
-        delete[] data;
-        data = new_data;
-      }
-      void push_back(T value) {
-        if (size == capacity)
-          increment_capacity();
-        data[++size] = value;
-      }
-      T& operator[](uint32_t index) {
-        if (index >= size)
-          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", index, " >= ", size);
-        return data[index];
-      }
-      void pop_back() {
-        if (size == 0)
-          throw_up("Cannot pop from an empty vector at ", to_ptrstr(this));
-        --size;
-      }
-    };
-
-
-
-    template <uint8_t N>
-    class String { public:
-      /*
-        Static fixed size string. It can hold up to `N` characters and is
-        only null-terminated when cslib::String's capacity isn't maxed.
-        If it is, the size-limit acts as a terminator.
-        Example:
-          String<2> str("Hi");
-          // str = {'H', 'i'}
-          String<3> str2("Hi");
-          // str2 = {'H', 'i', '\0'}
-          String<4> str3("Hi");
-          // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
-          for something else earlier but ignored after null-termination)}
-      */
-      static_assert(N > 0, "String size must be greater than 0");
-
-      char data[N] = {'\0'};
-
-      String() = default;
-      String(std::string_view str) {
-        for (char c : str)
-          append(c);
-      }
-      template <uint8_t ON> // Other N
-      String(const String<ON>&) = delete;
-      template <uint8_t ON>
-      String& operator=(const String<ON>&) = delete;
-      String(String&& other) noexcept {
-        for (uint8_t i = 0; i < N; ++i)
-          data[i] = other.data[i];
-        other.clear();
-      }
-      String& operator=(String&& other) noexcept {
-        if (this != &other) {
-          for (uint8_t i = 0; i < N; ++i)
-            data[i] = other.data[i];
-          other.clear();
-        }
-        return *this;
-      }
-
-      uint8_t length() {
-        uint8_t size = 0;
-        while (data[size] != '\0' and size < N)
-          ++size;
-        return size;
-      }
-      void append(char c) {
-        uint8_t size = length();
-        if (size >= N)
-          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", N);
-        data[size] = c;
-        if (size + 1 < N)
-          data[size + 1] = '\0';
-      }
-      void clear() {
-        data = {'\0'};
-      }
-      char& at(uint8_t index) {
-        if (index >= N)
-          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", N);
-        return data[index];
-      }
-      char* begin() {return data;}
-      char* end() {return data + length();}
-      std::string std_str() {
-        std::string str;
-        for (char c : data)
-          str += c;
-        return str;
-      }
-      bool operator==(String other) {
-        return this->std_str() == other.std_str();
-      }
-      bool operator==(std::string_view other) {
-        return this->std_str() == other.data();
-      }
-    };
-    template <uint8_t N>
-    class Wstring { public:
-      /*
-        Same as String but for wide characters.
-        Example:
-          Wstring<2> str(L"Hi");
-          // str = {L'H', L'i'}
-          Wstring<3> str2(L"Hi");
-          // str2 = {L'H', L'i', L'\0'}
-          Wstring<4> str3(L"Hi");
-          // str3 = {L'H', L'i', L'\0', L'm' (L'm' could have been used
-          for something else earlier but ignored after null-termination)}
-      */
-      static_assert(N > 0, "Wstring size must be greater than 0");
-
-      wchar_t data[N] = {L'\0'};
-
-      Wstring() = default;
-      Wstring(std::wstring str) {
-        for (wchar_t c : str)
-          append(c);
-      }
-      template <uint8_t ON> // Other N
-      Wstring(const Wstring<ON>&) = delete;
-      template <uint8_t ON>
-      Wstring& operator=(const Wstring<ON>&) = delete;
-      Wstring(Wstring&& other) noexcept {
-        // Move constructor
-        for (uint8_t i = 0; i < N; ++i)
-          data[i] = other.data[i];
-        other.clear();
-      }
-      Wstring& operator=(Wstring&& other) noexcept {
-        if (this != &other) {
-          for (uint8_t i = 0; i < N; ++i)
-            data[i] = other.data[i];
-          other.clear();
-        }
-        return *this;
-      }
-
-      uint8_t length() {
-        uint8_t size = 0;
-        while (data[size] != L'\0' and size < N)
-          ++size;
-        return size;
-      }
-      void append(wchar_t c) {
-        uint8_t size = length();
-        if (size >= N)
-          throw_up("Wstring (", to_ptrstr(this), ") capacity exceeded: ", N);
-        data[size] = c;
-        if (size + 1 < N)
-          data[size + 1] = L'\0';
-      }
-      void clear() {
-        data = {L'\0'};
-      }
-      wchar_t& at(uint8_t index) {
-        if (index >= N)
-          throw_up("Index out of bounds for Wstring at ", to_ptrstr(this), ": ", index, " >= ", N);
-        return data[index];
-      }
-      wchar_t* begin() {return data;}
-      wchar_t* end() {return data + length();}
-      wstr_t std_str() {
-        wstr_t str;
-        for (wchar_t c : data)
-          str += c;
-        return str;
-      }
-    };
-
-
-    template <typename K, typename V>
-    class Map { public:
-      /*
-        A TinySTL::Vector that holds key-value pairs.
-      */
-      struct Node {
-        K key;
-        V value;
-      };
-
-      Vector<Node> data;
-
-      Map() = default;
-      Map(size_t initialCapacity) : data(initialCapacity) {
-        if (initialCapacity == 0)
-          throw_up("Map capacity must be greater than 0");
-      }
-      Map(const Map&) = delete;
-      Map& operator=(const Map&) = delete;
-      Map(Map&& other) noexcept : data(std::move(other.data)) {
-        other.data = Vector<Node>();
-      }
-      Map& operator=(Map&& other) noexcept {
-        if (this != &other) {
-          data = std::move(other.data);
-          other.data = Vector<Node>();
-        }
-        return *this;
-      }
-
-      void insert(K key, V value) {
-        if (contains(key))
-          throw_up("Key already exists for Map at ", to_ptrstr(this));
-        data.push_back({key, value});
-      }
-      V& at(K key) {
-        for (Node& node : data)
-          if (node.key == key)
-            return node.value;
-        throw_up("Key not found for Map at ", to_ptrstr(this));
-      }
-      V& operator[](K key) {
-        return at(key);
-      }
-      bool contains(K key) const {
-        for (Node node : data)
-          if (node.key == key)
-            return true;
-        return false;
-      }
-      std::pair<K, V>* begin() {
-        return reinterpret_cast<std::pair<K, V>*>(data.begin());
-      }
-      std::pair<K, V>* end() {
-        return reinterpret_cast<std::pair<K, V>*>(data.end());
-      }
-    };
   };
 } // namespace cslib

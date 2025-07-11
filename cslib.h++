@@ -362,7 +362,7 @@ namespace cslib {
 
 
 
-    // template <size_t N, typename char_t = wchar_t>
+    template <size_t N, typename char_t = wchar_t>
     class String { public:
       /*
         Static fixed size string. It can hold up to `N` characters and is
@@ -377,8 +377,6 @@ namespace cslib {
           // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
           for something else earlier but ignored after null-termination)}
       */
-      static const int N = 3;
-      using char_t = char;
       static_assert(N > 0, "String size must be greater than 0");
 
       char_t data[N] = {0};
@@ -502,7 +500,7 @@ namespace cslib {
         if (this != &other) {
           this->wipe_clean();
           if (other.length() >= N)
-            throw_up("Copying string '", to_str(other), "' with size ", other.length(), " exceeds capacity ", N);
+            throw_up("Copying string '", to_str(std::string(other)), "' with size ", other.length(), " exceeds capacity ", N);
           size_t index = -1;
           for (const char_t& c : other)
             data[++index] = c;
@@ -512,21 +510,15 @@ namespace cslib {
         return *this;
       }
       // Move operations
-      constexpr String(String&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
-        other.data = {0};
-        other.size = 0;
-        other.capacity = 0;
+      String(String&& other) noexcept {
+        for (size_t i = 0; i < N; ++i)
+          this->data[i] = std::move(other.data[i]);
       }
-      constexpr String& operator=(String&& other) noexcept {
+      String& operator=(String&& other) noexcept {
         if (this != &other) {
-          this->empty();
-          data = other.data;
-          size = other.size;
-          capacity = other.capacity;
-
-          other.data = {0};
-          other.size = 0;
-          other.capacity = 0;
+          this->wipe_clean();
+          for (size_t i = 0; i < N; ++i)
+            this->data[i] = std::move(other.data[i]);
         }
         return *this;
       }
@@ -971,16 +963,13 @@ namespace cslib {
       return result;
 
     for (wchar_t c : str) {
-      if (c == delimiter) {
-        result.push_back(temp);
-        temp.clear();
-      } else {
+      if (c == delimiter)
+        result.push_back(std::move(temp));
+      else
         temp += c;
-      }
     }
 
     result.push_back(temp);
-
     return result;
   }
 
@@ -988,17 +977,14 @@ namespace cslib {
 
   size_t roll_dice(size_t min, size_t max) {
     /*
-      This function takes a minimum and maximum value and returns a random
+      Minimum and maximum value and returns a random
       number between them (inclusive).
     */
-
     if (min > max) std::swap(min, max);
 
-    // Special thanks to copilot. No idea what this does
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<size_t> dis(min, max);
-    return dis(gen);
+    static thread_local std::mt19937 generator(std::random_device{}());
+    std::uniform_int_distribution<size_t> distribution(min, max);
+    return distribution(generator);
   }
 
 
@@ -1011,24 +997,25 @@ namespace cslib {
 
 
 
+  // Get the first available UTF-8 locale
+  FIXED std::array<std::string_view, 6> utf8_locales = {
+    "en_US.UTF-8",
+    "en_US.utf8",
+    "C.UTF-8",
+    "POSIX.UTF-8",
+    "C.utf8",
+    "POSIX.utf8"
+  };
   void enable_wchar_io() {
     // Set all io-streaming globally to UTF-8 encoding
 
-    // Get the first available UTF-8 locale
-    const TinySTL::Vector<std::string_view> utf8_locales = {
-      "en_US.UTF-8",
-      "en_US.utf8",
-      "C.UTF-8",
-      "POSIX.UTF-8",
-      "C.utf8",
-      "POSIX.utf8"
-    };
     std::locale utf8_locale;
     for (std::string_view locale_name : utf8_locales) {
       try {
         utf8_locale = std::locale(locale_name.data());
       } catch (const std::runtime_error&) {
         // Ignore the exception, try the next locale
+        std::wcerr << L"[⚠️] Failed to set locale: " << locale_name.data() << L". Trying next...\n";
       }
     }
     if (utf8_locale.name().empty())
@@ -1238,12 +1225,12 @@ namespace cslib {
 
     std::filesystem::path isAt; // Covers move and copy semantics
 
-    bool valid() const {
-      return !isAt.empty() and std::filesystem::exists(isAt);
+    void assert_valid() const {
+      if (!std::filesystem::exists(isAt))
+        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
     }
     std::filesystem::file_type type() const {
-      if (!valid())
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
+      assert_valid();
       return std::filesystem::status(isAt).type();
     }
     VirtualPath parent() const {
@@ -1254,8 +1241,7 @@ namespace cslib {
           VirtualPath parent = path.parent();
           // parent = "/gitstuff/cslib"
       */
-      if (!valid())
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
+      assert_valid();
       if (isAt.parent_path().empty())
         throw_up("VirtualPath '", to_ptrstr(this), "' has somehow no parent");
       return VirtualPath(isAt.parent_path().wstring(), std::filesystem::file_type::directory);
@@ -1268,8 +1254,7 @@ namespace cslib {
           size_t depth = path.depth();
           // depth = 2 (because there are 2 directories before the file)
       */
-      if (!valid())
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
+      assert_valid();
       return separate(isAt.wstring(), PATH_DELIMITER).size - 1; // -1 for the last element
     }
     bool operator==(const VirtualPath& other) const { return this->isAt == other.isAt; }
@@ -1309,40 +1294,36 @@ namespace cslib {
       TimeStamp ts(std::chrono::system_clock::from_time_t(std::mktime(timeinfo)));
       return ts;
     }
-    void move_to(VirtualPath moveTo) {
+    void move_to(const VirtualPath& moveTo) {
       // Move this instance to a new location and apply changes.
-      if (!this->valid())
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
-      if (!moveTo.valid())
-        throw_up("Target path is empty (this: '", this->isAt.wstring(), "', target: '", moveTo.isAt.wstring(), "')");
+      this->assert_valid();
+      moveTo.assert_valid();
       if (moveTo.type() != std::filesystem::file_type::directory)
         throw_up("Target path '", moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
       if (moveTo == *this)
         throw_up("Cannot move to the same path: ", this->isAt.wstring());
-      wstr_t willBecome = moveTo.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
+      std::filesystem::path willBecome = moveTo.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
-        throw_up("Target path '", willBecome, "' already exists (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
       std::filesystem::rename(this->isAt, willBecome);
-      this->isAt = VirtualPath(willBecome).isAt; // Apply changes
+      this->isAt = VirtualPath(willBecome.wstring()).isAt; // Apply changes
     }
-    VirtualPath copy_into(VirtualPath targetDict) const {
+    VirtualPath copy_into(const VirtualPath& targetDict) const {
       /*
         Copies this instance to a new location and returns
         a new VirtualPath instance pointing to the copied file.
       */
-      if (!this->valid())
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
-      if (!targetDict.valid())
-        throw_up("Target path is empty (this: '", this->isAt.wstring(), "', target: '", targetDict.isAt.wstring(), "')");
+      this->assert_valid();
+      targetDict.assert_valid();
       if (targetDict.type() != std::filesystem::file_type::directory)
         throw_up("Target path '", targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
       if (targetDict == *this)
         throw_up("Cannot copy to the same path: ", this->isAt.wstring());
-      wstr_t willBecome = targetDict.isAt.wstring() + to_wstr(PATH_DELIMITER) + this->isAt.filename().wstring();
+      std::filesystem::path willBecome = targetDict.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
-        throw_up("Element '", willBecome, "' already exists in target directory (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
       std::filesystem::copy(this->isAt, willBecome);
-      return VirtualPath(willBecome);
+      return VirtualPath(willBecome.wstring(), this->type());
     }
 
     // Constructors
@@ -1355,32 +1336,8 @@ namespace cslib {
         - If where is empty, you will crash.
     */
     VirtualPath(wstrsv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
-      if (this->type() != shouldBe) {
-        wstr_t errorMsg = L"Path '" + to_wstr(where) + L"' should be of type '";
-        switch (shouldBe) {
-          case std::filesystem::file_type::regular: errorMsg += L"regular file"; break;
-          case std::filesystem::file_type::directory: errorMsg += L"directory"; break;
-          case std::filesystem::file_type::symlink: errorMsg += L"symlink"; break;
-          case std::filesystem::file_type::block: errorMsg += L"block device"; break;
-          case std::filesystem::file_type::character: errorMsg += L"character device"; break;
-          case std::filesystem::file_type::fifo: errorMsg += L"FIFO (named pipe)"; break;
-          case std::filesystem::file_type::socket: errorMsg += L"socket"; break;
-          default: errorMsg += L"unknown type";
-        }
-        errorMsg += L"', but is actually of type '";
-        switch (this->type()) {
-          case std::filesystem::file_type::regular: errorMsg += L"regular file"; break;
-          case std::filesystem::file_type::directory: errorMsg += L"directory"; break;
-          case std::filesystem::file_type::symlink: errorMsg += L"symlink"; break;
-          case std::filesystem::file_type::block: errorMsg += L"block device"; break;
-          case std::filesystem::file_type::character: errorMsg += L"character device"; break;
-          case std::filesystem::file_type::fifo: errorMsg += L"FIFO (named pipe)"; break;
-          case std::filesystem::file_type::socket: errorMsg += L"socket"; break;
-          default: errorMsg += L"unknown type";
-        }
-        errorMsg += L"'";
-        throw_up(errorMsg);
-      }
+      if (this->type() != shouldBe)
+        throw_up("Path '", to_ptrstr(this), "' should be of type '", fs_type_to_str(shouldBe), "', but is actually of type '", fs_type_to_str(this->type()), '\'');
     }
   };
 
@@ -1394,7 +1351,6 @@ namespace cslib {
         std::string content = file.content();
         // content = "Hello World"
     */
-
     VirtualPath is; // Composition over inheritance
 
     File() = default;
@@ -1406,8 +1362,7 @@ namespace cslib {
         Note:
           - No error-handling for files larger than available memory
       */
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for file at ", to_ptrstr(this));
+      is.assert_valid();
       std::wifstream file(is.isAt, openMode);
       if (!file.is_open())
         throw_up("Failed to open file '", is.isAt.wstring(), '\'');
@@ -1415,37 +1370,25 @@ namespace cslib {
         throw_up("Failed to read file '", is.isAt.wstring(), '\'');
       return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
     }
-    std::string binary_content(std::ios_base::openmode openMode = std::ios::binary) const {
-      /*
-        Read the content of the file and return it as a binary string.
-        Note:
-          - No error-handling for files larger than available memory
-      */
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for file at ", to_ptrstr(this));
-      std::ifstream file(is.isAt, openMode);
-      if (!file.is_open())
-        throw_up("Failed to open file '", is.isAt.wstring(), '\'');
-      if (!file.good())
-        throw_up("Failed to read file '", is.isAt.wstring(), '\'');
-      return std::string((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-    }
     wstr_t wstr() const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for file at ", to_ptrstr(this));
+      is.assert_valid();
       return is.isAt.wstring();
     }
     wstr_t extension() const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for file at ", to_ptrstr(this));
+      is.assert_valid();
       return is.isAt.extension().wstring();
     }
     size_t bytes() const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for file at ", to_ptrstr(this));
+      is.assert_valid();
       return std::filesystem::file_size(is.isAt);
     }
   };
+
+
+
+  MACRO TEMP_FILE_HEAD = "cslibTempFile_";
+  MACRO TEMP_FILE_TAIL = ".tmp";
+  MACRO TEMP_FILE_NAME_LEN = 200 - (std::strlen(TEMP_FILE_HEAD) + std::strlen(TEMP_FILE_TAIL)); // Freebuffer of 55
   class TempFile { public:
     /*
       A temporary file that is created in the system's temporary directory.
@@ -1456,21 +1399,32 @@ namespace cslib {
         std::string content = tempFile.read();
         // content = "Hello World"
     */
-    static FIXED wstr_t TEMP_FILE_HEAD = L"cslibTempFile_";
-    static MACRO TEMP_FILE_RAND_NAME_LENGTH = 255 - TEMP_FILE_HEAD.length() - 4; // 4 for the extension
     File file;
 
-    TempFile(wstr_t extension = L"tmp") {
+    TempFile() {
       /*
         Create a temporary file in the system's temporary directory.
         The file will be deleted when the object is destroyed.
         File name is generated based on random characters
       */
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
-      wstr_t randomName;
-      for (size_t i : range(TEMP_FILE_RAND_NAME_LENGTH))
-        randomName += wchar_t(roll_dice('a', 'z')); // A-Z
-      randomName += L'.' + extension;
+      std::string randomName;
+      for (size_t i : range(TEMP_FILE_NAME_LEN)) {
+        switch (roll_dice(0, 2)) {
+          case 0: randomName += wchar_t(roll_dice(L'A', L'Z')); break; // Uppercase letter
+          case 1: randomName += wchar_t(roll_dice(L'a', L'z')); break; // Lowercase letter
+          case 2: randomName += wchar_t(roll_dice(L'0', L'9')); break; // Digit
+        }
+      }
+      std::string tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
+      file = File(tempDir.wstr() + PATH_DELIMITER + to_wstr(tempFileName));
+    }
+    ~TempFile() {
+      if (!std::filesystem::exists(file.is.isAt)) {
+        std::wcerr << L"[⚠️] Temporary file '" << file.is.isAt.wstring() << L"' was deleted before cleanup.\n";
+        return;
+      }
+      std::filesystem::remove(file.is.isAt);
     }
   };
 
@@ -1487,8 +1441,7 @@ namespace cslib {
     Folder() = default;
     Folder(wstrsv_t where) : is(where, std::filesystem::file_type::directory) {update();}
     wstr_t wstr() const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      is.assert_valid();
       return is.isAt.wstring();
     }
     bool has(const VirtualPath& item) const {
@@ -1500,23 +1453,19 @@ namespace cslib {
           bool exists = folder.has(item);
           // exists = true
       */
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      is.assert_valid();
       return contains(content, item);
     }
     bool has(const File& item) const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      is.assert_valid();
       return contains(content, item.is);
     }
     bool has(const Folder& item) const {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      is.assert_valid();
       return contains(content, item.is);
     }
     void update() {
-      if (is.isAt.empty())
-        throw_up("Uninitialized path for folder at ", to_ptrstr(this));
+      is.assert_valid();
       content.clear();
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
         content.push_back(VirtualPath(entry.path().wstring()));

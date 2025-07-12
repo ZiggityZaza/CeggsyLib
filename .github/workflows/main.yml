@@ -1,0 +1,14 @@
+name: minimal c++ compile
+
+on: [workflow_dispatch]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Compile
+        run: g++ main.cpp -o main

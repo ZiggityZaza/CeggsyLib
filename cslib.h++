@@ -62,23 +62,23 @@ namespace cslib {
 
   // Defined beforehand to avoid circular dependencies
   // Find the correct way to convert T to string
-  MACRO to_str(const auto* _p) {
-    if (_p == nullptr)
-      return "nullptr";
+  MACRO to_str(const auto* _ptr) {
+    if (_ptr == nullptr)
+      return str_t("nullptr");
     std::ostringstream oss;
-    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(_p);
+    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(_ptr);
     return oss.str();
   }
   template <typename _number_t>
   requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
-  MACRO to_str(_number_t _n) {
-    return std::to_string(_n);
+  MACRO to_str(_number_t _number) {
+    return std::to_string(_number);
   }
-  MACRO to_str(char _c) {
-    return str_t(1, _c);
+  MACRO to_str(char _character) {
+    return str_t(1, _character);
   }
-  MACRO to_str(wchar_t _c) { // lossy conversion for wchar_t.
-    return str_t(1, static_cast<char>(_c));
+  MACRO to_str(wchar_t _wideChar) { // lossy conversion for wchar_t.
+    return str_t(1, static_cast<char>(_wideChar));
   }
   MACRO to_str(strv_t _sv) {
     return str_t(_sv.begin(), _sv.end());
@@ -86,28 +86,25 @@ namespace cslib {
   MACRO to_str(wstrv_t _wsv) { // lossy conversion
     return str_t(_wsv.begin(), _wsv.end());
   }
-  str_t to_str(const std::filesystem::path& _p) {
-    return _p.string();
-  }
 
   // Convert to wide string
-  MACRO to_wstr(const auto* _p) {
-    if (_p == nullptr)
-      return L"nullptr";
+  MACRO to_wstr(const auto* _ptr) {
+    if (_ptr == nullptr)
+      return wstr_t(L"nullptr");
     std::wostringstream woss;
-    woss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(_p);
+    woss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(_ptr);
     return woss.str();
   }
   template <typename _number_t>
   requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
-  MACRO to_wstr(_number_t _n) {
-    return std::to_wstring(_n);
+  MACRO to_wstr(_number_t _number) {
+    return std::to_wstring(_number);
   }
-  MACRO to_wstr(char _c) {
-    return wstr_t(1, static_cast<wchar_t>(_c));
+  MACRO to_wstr(char _character) {
+    return wstr_t(1, static_cast<wchar_t>(_character));
   }
-  MACRO to_wstr(wchar_t _c) {
-    return wstr_t(1, _c);
+  MACRO to_wstr(wchar_t _wideChar) {
+    return wstr_t(1, _wideChar);
   }
   MACRO to_wstr(strv_t _sv) {
     return wstr_t(_sv.begin(), _sv.end());
@@ -115,14 +112,11 @@ namespace cslib {
   MACRO to_wstr(wstrv_t _wsv) {
     return wstr_t(_wsv.begin(), _wsv.end());
   }
-  wstr_t to_wstr(std::filesystem::path _p) {
-    return _p.wstring();
-  }
 
 
 
   template <typename... _args>
-  std::runtime_error up_impl(size_t _l, _args&&... _msgs) {
+  std::runtime_error up_impl(size_t _lineInCode, _args&&... _msgs) {
     /*
       Create a custom runtime error with the given messages.
       Example:
@@ -134,7 +128,7 @@ namespace cslib {
     ((message += to_wstr(std::forward<_args>(_msgs))), ...);
     std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
     std::filesystem::path currentPath = std::filesystem::current_path();
-    return std::runtime_error("std::runtime_error called from line " + std::to_string(_L) + " in workspace '" + currentPath.string() + "'");
+    return std::runtime_error("std::runtime_error called from line " + std::to_string(_lineInCode) + " in workspace '" + currentPath.string() + "'");
   }
   #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
 
@@ -144,6 +138,163 @@ namespace cslib {
   namespace TinySTL {
     // The stl is good but sometimes you need something smaller
 
+    template <size_t N>
+    class String { public:
+      /*
+        Static fixed size string. It can hold up to `N` characters and is
+        only null-terminated when cslib::String's capacity isn't maxed.
+        If it is, the size-limit acts as a terminator.
+      */
+      static_assert(N > 0, "String size must be greater than 0");
+      wchar_t data[N] = {0};
+
+
+      // Access functions
+      constexpr size_t length() const {
+        /*
+          Returns the length of the string.
+          Note:
+            This is not the capacity, but the actual length of the string.
+        */
+        size_t len = 0;
+        while (data[len] != 0 and len < N)
+          ++len;
+        return len;
+      }
+      constexpr wchar_t* begin() { return data; }
+      constexpr wchar_t* end() { return data + length(); }
+      constexpr const wchar_t* begin() const { return data; }
+      constexpr const wchar_t* end() const { return data + length(); }
+
+
+      // String management
+      constexpr void append(wchar_t _c) {
+        size_t len = length();
+        if (len >= N)
+          throw_up("Capacity exceeded: ", N);
+        data[len] = _c;
+        if (len + 1 < N)
+          data[len + 1] = 0;
+      }
+
+      constexpr void append(wstrv_t _wstrv) {
+        size_t currentPos = length();
+        if (currentPos + _wstrv.length() >= N)
+          throw_up("Appending string exceeds capacity (current: ", currentPos, ", appending: ", _wstrv.length(), ")");
+        for (wchar_t c : _wstrv)
+          data[currentPos++] = c;
+      }
+
+      constexpr void wipe_clean() {
+        for (size_t i = 0; i < N; ++i)
+          data[i] = 0;
+      }
+
+      constexpr wchar_t at(size_t _i) {
+        if (_i >= N)
+          throw_up("Index out of bounds: ", _i, " >= ", N);
+        return data[_i];
+      }
+
+      constexpr bool operator==(const String& _other) const {
+        if (length() != _other.length())
+          return false;
+        for (size_t i = 0; i < length(); ++i)
+          if (data[i] != _other.data[i])
+            return false;
+        return true;
+      }
+      constexpr bool operator!=(const String& _other) const {
+        return !(*this == _other);
+      }
+      constexpr bool operator==(wstrv_t _wstrv) const {
+        if (length() != _wstrv.length())
+          return false;
+        size_t index = -1;
+        for (wchar_t c : _wstrv)
+          if (data[++index] != c)
+            return false;
+        return true;
+      }
+
+
+      // Transform into stl (lossy conversion for byte differences)
+      constexpr operator str_t() const { return str_t(data, data + length()); }
+      constexpr operator str_t&&() { return std::move(str_t(*this)); }
+      constexpr operator wstr_t() const { return std::wstring(data, data + length()); }
+      constexpr operator wstr_t&&() { return std::move(std::wstring(*this)); }
+      constexpr friend std::ostream& operator<<(std::ostream& _os, const String& _ourSelf) {
+        return _os << str_t(_ourSelf.begin(), _ourSelf.end());
+      }
+      constexpr friend std::wostream& operator<<(std::wostream& _wos, const String& _ourSelf) {
+        return _wos << wstr_t(_ourSelf.begin(), _ourSelf.end());
+      }
+
+
+      // Standard constructors
+      constexpr String() = default;
+
+      constexpr String(strv_t _strv) {
+        if (_strv.size() >= N)
+          throw_up("Constructing wide string view with size ", _strv.size(), " exceeds capacity ", N);
+        size_t index = -1;
+        for (char c : _strv)
+          data[++index] = static_cast<wchar_t>(c);
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+
+      constexpr String(wstrv_t _wstrv) {
+        if (_wstrv.size() >= N)
+          throw_up("Constructing wide string view with size ", _wstrv.size(), " exceeds capacity ", N);
+        size_t index = -1;
+        for (wchar_t c : _wstrv)
+          data[++index] = c;
+        if (index + 1 < N)
+          data[++index] = 0;
+      }
+
+
+      // Move/Copy operations
+      constexpr String(const String& _other) {
+        if (_other.data == 0)
+          throw_up("Can't copy empty string");
+        size_t index = -1;
+        for (wchar_t c : _other)
+          data[++index] = c;
+      }
+      constexpr String& operator=(const String& _other) {
+        if (this != &_other) {
+          wipe_clean();
+          size_t index = -1;
+          for (wchar_t c : _other)
+            data[++index] = c;
+        }
+        return *this;
+      }
+
+      constexpr String(String&& _other) noexcept {
+        if (_other.data == 0)
+          throw_up("Can't move empty string");
+        size_t index = -1;
+        for (wchar_t c : _other)
+          data[++index] = c;
+        _other.wipe_clean();
+      }
+      constexpr String& operator=(String&& _other) noexcept {
+        if (this != &_other) {
+          wipe_clean();
+          size_t index = -1;
+          for (wchar_t c : _other)
+            data[++index] = c;
+          _other.wipe_clean();
+        }
+        return *this;
+      }
+    };
+
+  
+  
     template <typename T>
     class Vector { public:
       /*
@@ -156,7 +307,14 @@ namespace cslib {
       uint32_t size;
       uint32_t capacity;
 
-      void wipe_clean() {
+
+      // Vector handling
+      T* begin() { return data; }
+      T* end() { return data + size; }
+      const T* begin() const { return data; }
+      const T* end() const { return data + size; }
+
+      void wipe_clean() noexcept {
         /*
           Call destructor on all elements and
           and reset the vector
@@ -168,10 +326,7 @@ namespace cslib {
         size = 0;
         capacity = 0;
       }
-      T* begin() { return data; }
-      T* end() { return data + size; }
-      const T* begin() const { return data; }
-      const T* end() const { return data + size; }
+
       void increment_capacity() {
         T* new_data = new T[++capacity];
         size = -1;
@@ -180,6 +335,7 @@ namespace cslib {
         delete[] data;
         data = new_data;
       }
+
       void push_back(T&& _new_v) {
         if (size == capacity)
           increment_capacity();
@@ -190,37 +346,51 @@ namespace cslib {
           increment_capacity();
         data[++size] = _new_v;
       }
-      template <typename... _args>
-      void emplace_back(_args&&... _args) {
+
+      template <typename... Args>
+      void emplace_back(Args&&... _args) {
         if (size == capacity)
           increment_capacity();
-        data[++size] = T(std::forward<_args>(_args)...);
+        data[++size] = T(std::forward<Args>(_args)...);
       }
-      void pop_back() {
+
+      T pop_back() {
         if (size == 0)
-          throw_up("Cannot pop from an empty vector at ", to_ptrstr(this));
-        --size;
+          throw_up("Can't pop from empty");
+        return std::move(data[--size]);
       }
-      ~Vector() {
-        if (data != nullptr)
-          delete[] data;
+
+      T& operator[](uint32_t _atIndex) {
+        if (_atIndex >= size)
+          throw_up("Index out of bounds: ", _atIndex, " >= ", size);
+        return data[_atIndex];
       }
-      T& operator[](uint32_t _i) {
-        if (_i >= size)
-          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", _i, " >= ", size);
-        return data[_i];
-      }
-      bool operator==(const Vector<T>& _o) const {
-        if (size != _o.size)
+
+      bool operator==(const Vector<T>& _other) const {
+        if (size != _other.size)
           return false;
         for (uint32_t i = 0; i < size; ++i)
-          if (data[i] != _o.data[i])
+          if (data[i] != _other.data[i])
             return false;
         return true;
       }
-      bool operator!=(const Vector<T>& _o) const {
-        return !(*this == _o);
+      bool operator!=(const Vector<T>& _other) const {
+        return !(*this == _other);
       }
+
+      bool operator==(std::initializer_list<T> _initList) const {
+        if (size != _initList.size())
+          return false;
+        uint32_t index = -1;
+        for (const T& item : _initList)
+          if (data[++index] != item)
+            return false;
+        return true;
+      }
+      bool operator!=(std::initializer_list<T> _initList) const {
+        return !(*this == _initList);
+      }
+
 
       // Transform into stl
       operator std::vector<T>() const { // Copy
@@ -237,28 +407,16 @@ namespace cslib {
           vec.push_back(std::move(item));
         return std::move(vec);
       }
-      operator std::vector<T>*() { // Pointer
-        std::vector<T> vec;
-        vec.reserve(size);
-        for (T& item : *this)
-          vec.push_back(std::move(item));
-        return new std::vector<T>(std::move(vec));
-      }
-      operator std::vector<T>*() const { // Const pointer
-        std::vector<T> vec;
-        vec.reserve(size);
-        for (const T& item : *this)
-          vec.push_back(item);
-        return new std::vector<T>(std::move(vec));
-      }
+  
 
       // Standard constructors
-      Vector() : data(nullptr), size(0), capacity(0) {}
-      Vector(uint32_t _initCapacity) : size(0), capacity(_initCapacity) {
-        if (_initCapacity == 0)
-          throw_up("Vector capacity must be greater than 0");
-        data = new T[_initCapacity];
+      ~Vector() {
+        if (data != nullptr)
+          delete[] data;
       }
+
+      Vector() : data(nullptr), size(0), capacity(0) {}
+
       Vector(std::initializer_list<T> _initList) : size(_initList.size()), capacity(_initList.size()) {
         // Copies whatever is in the initializer list
         if (_initList.size() == 0)
@@ -268,240 +426,54 @@ namespace cslib {
         for (const T& item : _initList)
           data[++index] = item;
       }
+
       Vector(const std::vector<T>& _vec) : size(_vec.size()), capacity(_vec.capacity()) {
         if (_vec.empty())
           throw_up("Vector cannot be initialized from an empty std::vector");
-        data = new T[vec.size()];
+        data = new T[_vec.size()];
         uint32_t index = -1;
         for (const T& item : _vec)
           data[++index] = item;
       }
-      Vector(std::vector<T>&& _vec) : size(_vec.size()), capacity(_vec.capacity()) {
-        if (_vec.empty())
-          throw_up("Vector cannot be initialized from an empty std::vector");
-        data = new T[vec.size()];
-        uint32_t index = -1;
-        for (T& item : _vec)
-          data[++index] = item;
-      }
 
-      // Copy operations
-      Vector(const Vector& _o) : size(_o.size), capacity(_o.capacity) {
-        if (_o.data == nullptr)
-          throw_up("Cannot copy from an empty vector at ", to_ptrstr(&_o));
+
+      // Move/Copy operations
+      Vector(const Vector& _other) : size(_other.size), capacity(_other.capacity) {
+        if (_other.data == nullptr)
+          throw_up("Cannot copy from an empty vector at ", to_str(&_other));
         data = new T[capacity];
         uint32_t index = -1;
-        for (const T& item : _o)
+        for (const T& item : _other)
           data[++index] = item;
       }
-      Vector& operator=(const Vector& _o) {
-        if (this != &_o) {
-          this->wipe_clean();
-          size = _o.size;
-          capacity = _o.capacity;
-          if (_o.data == nullptr)
-            throw_up("Cannot copy from an empty vector at ", to_ptrstr(&_o));
+      Vector& operator=(const Vector& _other) {
+        if (this != &_other) {
+          wipe_clean();
+          size = _other.size;
+          capacity = _other.capacity;
+          if (_other.data == nullptr)
+            throw_up("Cannot copy from an empty vector at ", to_str(&_other));
           data = new T[capacity];
           uint32_t index = -1;
-          for (const T& item : _o)
+          for (const T& item : _other)
             data[++index] = item;
         }
         return *this;
       }
-      // Move operations
-      Vector(Vector&& _o) noexcept : data(_o.data), size(_o.size), capacity(_o.capacity) {
-        _o.data = nullptr;
-        _o.size = 0;
-        _o.capacity = 0;
+      Vector(Vector&& _other) noexcept : data(_other.data), size(_other.size), capacity(_other.capacity) {
+        _other.data = nullptr;
+        _other.size = 0;
+        _other.capacity = 0;
       }
-      Vector& operator=(Vector&& _o) noexcept {
+      Vector& operator=(Vector&& _other) noexcept {
         if (this != &_o) {
           delete[] data;
-          data = _o.data;
-          size = _o.size;
-          capacity = _o.capacity;
-          // No need to call wipe_clean() here
-
-          _o.data = nullptr;
-          _o.size = 0;
-          _o.capacity = 0;
-        }
-        return *this;
-      }
-    };
-
-
-
-    template <size_t _ar_size, typename _char_t = wchar_t>
-    class String { public:
-      /*
-        Static fixed size string. It can hold up to `N` characters and is
-        only null-terminated when cslib::String's capacity isn't maxed.
-        If it is, the size-limit acts as a terminator.
-        Example:
-          String<2> str("Hi");
-          // str = {'H', 'i'}
-          String<3> str2("Hi");
-          // str2 = {'H', 'i', '\0'}
-          String<4> str3("Hi");
-          // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
-          for something else earlier but ignored after null-termination)}
-      */
-      static_assert(_ar_size > 0, "String size must be greater than 0");
-
-      _char_t data[_ar_size] = {0};
-
-      constexpr size_t length() const {
-        /*
-          Returns the length of the string.
-          Note:
-            This is not the capacity, but the actual length of the string.
-        */
-        size_t len = 0;
-        while (data[len] != 0 and len < N)
-          ++len;
-        return len;
-      }
-      constexpr char_t* begin() { return data; }
-      constexpr char_t* end() { return data + length(); }
-      constexpr const char_t* begin() const { return data; }
-      constexpr const char_t* end() const { return data + length(); }
-      constexpr void append(const char_t& _c) {
-        size_t len = length();
-        if (len >= _ar_size)
-          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", _ar_size);
-        data[len] = _c;
-        if (len + 1 < _ar_size)
-          data[len + 1] = 0;
-      }
-      constexpr void append(const char_t* _str_b) {
-        size_t len = length();
-        size_t str_b_len = 0;
-        while (_str_b[str_b_len] != 0 and str_b_len < _ar_size)
-          ++str_b_len;
-        if (len + str_b_len >= _ar_size)
-          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", _ar_size);
-        for (size_t i = 0; i < str_b_len; ++i)
-          data[len + i] = _str_b[i];
-        if (len + str_b_len < _ar_size)
-          data[len + str_b_len] = 0;
-      }
-
-      constexpr void wipe_clean() {
-        for (size_t i = 0; i < _ar_size; ++i)
-          data[i] = 0;
-      }
-      constexpr _char_t& at(size_t index) {
-        if (index >= _ar_size)
-          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", _ar_size);
-        return data[index];
-      }
-      constexpr bool operator==(const String& other) const {
-        if (length() != other.length())
-          return false;
-        for (size_t i = 0; i < length(); ++i)
-          if (data[i] != other.data[i])
-            return false;
-        return true;
-      }
-      constexpr bool operator!=(const String& other) const {
-        return !(*this == other);
-      }
-
-      // Transform into stl (lossy conversion for chars)
-      constexpr operator str_t() const { return str_t(data, data + length()); }
-      constexpr operator str_t&&() { return std::move(str_t(*this)); }
-      constexpr operator str_t*() { return new str_t(*this); }
-      constexpr operator str_t*() const { return new str_t(*this); }
-      constexpr operator std::wstring() const { return std::wstring(data, data + length()); }
-      constexpr operator std::wstring&&() { return std::move(std::wstring(*this)); }
-      constexpr operator std::wstring*() { return new std::wstring(*this); }
-      constexpr operator std::wstring*() const { return new std::wstring(*this); }
-      constexpr friend std::ostream& operator<<(std::ostream& os, const String& str) {
-        /*
-          Print the string to an output stream.
-          Example:
-            std::cout << cslib::String<5>("Hello") << std::endl;
-        */
-        return os << str_t(str.data, str.data + str.length());
-      }
-      constexpr friend std::wostream& operator<<(std::wostream& os, const String& str) {
-        /*
-          Print the wide string to an output stream.
-          Example:
-            std::wcout << cslib::String<5>(L"Hello") << std::endl;
-        */
-        return os << std::wstring(str.data, str.data + str.length());
-      }
-
-      // Standard constructors
-      constexpr String() = default;
-      constexpr String(strv_t otherStr) {
-        /*
-          Initialize the string with a strv_t.
-          Note:
-            This is a lossy conversion, as char_t can represent characters
-            that cannot be represented in a single byte string.
-            Use with caution, as it may lead to data loss.
-        */
-        if (otherStr.size() >= N)
-          throw_up("Constructing string view '", to_str(otherStr), "' with size ", otherStr.size(), " exceeds capacity ", N);
-        size_t index = -1;
-        for (char c : otherStr)
-          data[++index] = char_t(c);
-        if (index + 1 < N)
-          data[++index] = 0;
-      }
-      constexpr String(wstrv_t otherWstr) {
-        if (otherWstr.size() >= N)
-          throw_up("Constructing string view '", to_str(otherWstr), "' with size ", otherWstr.size(), " exceeds capacity ", N);
-        size_t index = -1;
-        for (wchar_t c : otherWstr)
-          data[++index] = char_t(c);
-        if (index + 1 < N)
-          data[++index] = 0;
-      }
-      constexpr String(const char_t* otherStr) {
-        size_t index = -1;
-        while (otherStr[++index] != 0 and index < N)
-          data[index] = otherStr[index];
-        if (index + 1 < N)
-          data[++index] = 0;
-      }
-
-      // Copy operations
-      constexpr String(const String& other) {
-        if (other.length() >= N)
-          throw_up("Copying string '", to_str(str_t(other)), "' with size ", other.length(), " exceeds capacity ", N);
-        size_t index = -1;
-        for (const char_t& c : other)
-          data[++index] = c;
-        if (index + 1 < N)
-          data[++index] = 0;
-      }
-      constexpr String& operator=(const String& other) {
-        if (this != &other) {
-          this->wipe_clean();
-          if (other.length() >= N)
-            throw_up("Copying string '", to_str(str_t(other)), "' with size ", other.length(), " exceeds capacity ", N);
-          size_t index = -1;
-          for (const char_t& c : other)
-            data[++index] = c;
-          if (index + 1 < N)
-            data[++index] = 0;
-        }
-        return *this;
-      }
-      // Move operations
-      String(String&& other) noexcept {
-        for (size_t i = 0; i < N; ++i)
-          this->data[i] = std::move(other.data[i]);
-      }
-      String& operator=(String&& other) noexcept {
-        if (this != &other) {
-          this->wipe_clean();
-          for (size_t i = 0; i < N; ++i)
-            this->data[i] = std::move(other.data[i]);
+          data = _other.data;
+          size = _other.size;
+          capacity = _other.capacity;
+          _other.data = nullptr;
+          _other.size = 0;
+          _other.capacity = 0;
         }
         return *this;
       }
@@ -513,174 +485,135 @@ namespace cslib {
     class Map { public:
       /*
         A simple map implementation using a vector of key-value pairs.
-        Note:
-          This is not a hash map, so it is not as efficient as std::unordered_map.
-          It is meant for small maps where memory is preferred over speed.
       */
 
-      struct Node {
-        K key;
-        V value;
-      };
+      using Node_t = std::pair<K, V>;
+      Vector<Node_t> data;
 
-      Vector<Node> data;
+      Node_t* begin() { return data.data(); }
+      Node_t* end() { return data.data() + data.size(); }
+      const Node_t* begin() const { return data.data(); }
+      const Node_t* end() const { return data.data() + data.size(); }
 
-      std::pair<K, V>* begin() { return reinterpret_cast<std::pair<K, V>*>(data.begin()); }
-      std::pair<K, V>* end() { return reinterpret_cast<std::pair<K, V>*>(data.end()); }
-      const std::pair<K, V>* begin() const { return reinterpret_cast<const std::pair<K, V>*>(data.begin()); }
-      const std::pair<K, V>* end() const { return reinterpret_cast<const std::pair<K, V>*>(data.end()); }
-      void wipe_clean() {
-        data.wipe_clean();
-      }
-      void insert(const K& key, const V& value) {
-        for (Node& node : data) {
-          if (node.key == key) {
-            node.value = value;
+
+      // Map management
+      void insert(const K& _key, const V& _value) {
+        for (const Node_t& node : data)
+          if (node.first == _key) {
+            node.second = _value;
             return;
           }
-        }
-        data.push_back({key, value});
+        data.push_back({_key, _value});
       }
-      void insert(K&& key, V&& value) {
-        for (Node& node : data) {
-          if (node.key == key) {
-            node.value = std::move(value);
+      void insert(K&& _key, V&& _value) {
+        for (Node_t& node : data)
+          if (node.first == _key) {
+            node.value = std::move(_value);
             return;
           }
-        }
-        data.push_back({std::move(key), std::move(value)});
+        data.push_back({std::move(_key), std::move(_value)});
       }
-      void insert(const std::pair<K, V>& pair) {
-        insert(pair.first, pair.second);
+      void insert(const Node_t& _pair) {
+        insert(_pair.first, _pair.second);
       }
-      void insert(std::pair<K, V>&& pair) {
-        insert(std::move(pair.first), std::move(pair.second));
+      void insert(std::pair<K, V>&& _pair) {
+        insert(std::move(_pair.first), std::move(_pair.second));
       }
-      bool has_key(const K& key) const {
-        for (const Node& node : data)
-          if (node.key == key)
+
+      bool has_key(const K& _key) const {
+        for (const Node_t& node : data)
+          if (node.first == _key)
             return true;
         return false;
       }
-      bool has_key(K&& key) const {
-        for (const Node& node : data)
-          if (node.key == key)
+      bool has_key(K&& _key) const {
+        for (const Node_t& node : data)
+          if (node.first == _key)
             return true;
         return false;
       }
-      bool has_value(const V& value) const {
-        for (const Node& node : data)
-          if (node.value == value)
+      bool has_value(const V& _value) const {
+        for (const Node_t& node : data)
+          if (node.second == _value)
             return true;
         return false;
       }
-      bool has_value(V&& value) const {
-        for (const Node& node : data)
-          if (node.value == value)
+      bool has_value(V&& _value) const {
+        for (const Node_t& node : data)
+          if (node.second == _value)
             return true;
         return false;
       }
-      V& operator[](const K& key) {
-        for (Node& node : data)
-          if (node.key == key)
-            return node.value;
-        data.push_back({key, V()});
-        return data.back().value;
+
+      V& operator[](const K& _key) {
+        for (Node_t& node : data)
+          if (node.first == _key)
+            return node.second;
+        data.push_back({_key, V()});
+        return data.back().second;
       }
-      V& operator[](K&& key) {
-        for (Node& node : data)
-          if (node.key == key)
-            return node.value;
-        data.push_back({std::move(key), V()});
-        return data.back().value;
+      V& operator[](K&& _key) {
+        for (Node_t& node : data)
+          if (node.first == _key)
+            return node.second;
+        data.push_back({std::move(_key), V()});
+        return data.back().second;
       }
-      std::vector<K> keys() const {
-        /*
-          Returns a vector of all keys in the map.
-        */
-        std::vector<K> keys;
-        for (const Node& node : data)
-          keys.push_back(node.key);
-        return keys;
-      }
+
 
       // Transform into stl
       operator std::unordered_map<K, V>() const { // Copy
         std::unordered_map<K, V> map;
-        for (const Node& node : data)
-          map[node.key] = node.value;
+        for (const Node_t& node : data)
+          map[node.first] = node.second;
         return map;
       }
       operator std::unordered_map<K, V>&&() { // Move
         std::unordered_map<K, V> map;
-        for (Node& node : data)
-          map[std::move(node.key)] = std::move(node.value);
+        for (Node_t& node : data)
+          map[std::move(node.first)] = std::move(node.second);
         return std::move(map);
-      }
-      operator std::unordered_map<K, V>*() { // Pointer
-        std::unordered_map<K, V> map;
-        for (Node& node : data)
-          map[std::move(node.key)] = std::move(node.value);
-        return new std::unordered_map<K, V>(std::move(map));
-      }
-      operator std::unordered_map<K, V>*() const { // Const pointer
-        std::unordered_map<K, V> map;
-        for (const Node& node : data)
-          map[node.key] = node.value;
-        return new std::unordered_map<K, V>(std::move(map));
       }
       operator std::map<K, V>() const { // Copy
         std::map<K, V> map;
-        for (const Node& node : data)
-          map[node.key] = node.value;
+        for (const Node_t& node : data)
+          map[node.first] = node.second;
         return map;
       }
       operator std::map<K, V>&&() { // Move
         std::map<K, V> map;
-        for (Node& node : data)
-          map[std::move(node.key)] = std::move(node.value);
+        for (Node_t& node : data)
+          map[std::move(node.first)] = std::move(node.second);
         return std::move(map);
       }
-      operator std::map<K, V>*() { // Pointer
-        std::map<K, V> map;
-        for (Node& node : data)
-          map[std::move(node.key)] = std::move(node.value);
-        return new std::map<K, V>(std::move(map));
-      }
-      operator std::map<K, V>*() const { // Const pointer
-        std::map<K, V> map;
-        for (const Node& node : data)
-          map[node.key] = node.value;
-        return new std::map<K, V>(std::move(map));
-      }
+
 
       // Standard constructors
       Map() = default;
-      Map(std::initializer_list<std::pair<K, V>> initList) {
-        for (const auto& pair : initList)
+
+      Map(std::initializer_list<std::pair<K, V>> _initList) {
+        for (const Node_t& pair : _initList)
           insert(pair.first, pair.second);
       }
-      Map(const std::unordered_map<K, V>& map) {
-        for (const auto& pair : map)
+
+      Map(const std::unordered_map<K, V>& _map) {
+        for (const Node_t& pair : _map)
           insert(pair.first, pair.second);
       }
-      Map(std::unordered_map<K, V>&& map) {
-        for (auto& pair : map)
-          insert(std::move(pair.first), std::move(pair.second));
-      }
-      Map(const std::map<K, V>& map) {
-        for (const auto& pair : map)
+
+      Map(const std::map<K, V>& _map) {
+        for (const Node_t& pair : _map)
           insert(pair.first, pair.second);
       }
-      Map(std::map<K, V>&& map) {
-        for (auto& pair : map)
-          insert(std::move(pair.first), std::move(pair.second));
-      }
-      Map(const Map<K, V>& other) : data(other.data) {}
-      Map<K, V>& operator=(const Map<K, V>& other) {
-        if (this != &other) {
-          this->wipe_clean();
-          data = other.data;
+
+
+      // Move/Copy operations
+      Map(const Map<K, V>& _other) : data(_other.data) {}
+
+      Map<K, V>& operator=(const Map<K, V>& _other) {
+        if (this != &_other) {
+          this->data.wipe_clean();
+          data = _other.data;
         }
         return *this;
       }
@@ -689,7 +622,7 @@ namespace cslib {
       }
       Map<K, V>& operator=(Map<K, V>&& other) noexcept {
         if (this != &other) {
-          this->wipe_clean();
+          this->data.wipe_clean();
           data = std::move(other.data);
           other.data.wipe_clean();
         }
@@ -708,17 +641,18 @@ namespace cslib {
 
 
   void print(const auto& _msg) {
-    std::wcout << _msg;
-  }
-  void print(const auto&& _msg) {
-    std::wcout << std::forward<decltype(_msg)>(_msg);
-  }
-  void printnd(const auto& _msg) {
     // Print and flush after
     std::wcout << _msg << std::flush;
   }
-  void printnd(const auto&& _msg) {
+  void println(const auto& _msg) {
+    // Print and flush after with newline
+    std::wcout << _msg << std::endl;
+  }
+  void print(const auto&& _msg) {
     std::wcout << std::forward<decltype(_msg)>(_msg) << std::flush;
+  }
+  void println(const auto&& _msg) {
+    std::wcout << std::forward<decltype(_msg)>(_msg) << std::endl;
   }
 
 
@@ -775,39 +709,28 @@ namespace cslib {
 
 
 
-  TinySTL::Vector<int> range(int start, int end) {
+  template <typename T>
+  requires std::is_integral_v<T>
+  TinySTL::Vector<T> range(T start, T end) {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (inclusive)
     */
-    TinySTL::Vector<int> result;
+    TinySTL::Vector<T> result;
     if (start > end) // reverse
-      for (int i = start; i >= end; --i)
+      for (T i = start; i >= end; --i)
         result.push_back(i);
     else if (start < end) // start to end
-      for (int i = start; i <= end; ++i)
+      for (T i = start; i <= end; ++i)
         result.push_back(i);
     else // just start
       result.push_back(start);
     return result;
   }
-  TinySTL::Vector<int> range(int end) {
-    return range(0, end);
-  }
-  TinySTL::Vector<size_t> range(size_t start, size_t end) {
-    TinySTL::Vector<size_t> result;
-    if (start > end) // reverse
-      for (size_t i = start; i >= end; --i)
-        result.push_back(i);
-    else if (start < end) // start to end
-      for (size_t i = start; i <= end; ++i)
-        result.push_back(i);
-    else // just start
-      result.push_back(start);
-    return result;
-  }
-  TinySTL::Vector<size_t> range(size_t end) {
-    return range(size_t(0), end);
+  template <typename T>
+  requires std::is_integral_v<T>
+  TinySTL::Vector<T> range(T end) {
+    return range(T(0), end);
   }
 
 
@@ -832,12 +755,12 @@ namespace cslib {
         return target();
       } catch (const std::exception& e) {
         if (tried == retries - 1) {
-          throw_up("Function ", to_ptrstr(&target), " failed after ", retries, " retries: ", e.what());
+          throw_up("Function ", to_str(&target), " failed after ", retries, " retries: ", e.what());
         }
       } catch (...) {
         // Catch all other exceptions
         if (tried == retries - 1) {
-          throw_up("Function ", to_ptrstr(&target), " failed after ", retries, " retries: Unknown exception");
+          throw_up("Function ", to_str(&target), " failed after ", retries, " retries: Unknown exception");
         }
       }
       std::this_thread::sleep_for(std::chrono::milliseconds(delay));
@@ -865,64 +788,55 @@ namespace cslib {
 
 
   FIXED wstrv_t TRIM_WITH = L"...";
-  wstr_t shorten_end(wstrv_t wstrsv, size_t maxLength) {
+  MACRO shorten_end(wstrv_t wstrsv, size_t maxLength) {
     /*
-      Trim and content of `TRIM_WITH` to the end of the string
-      if it exceeds `maxLength`.
       Example:
-        cslib::shorten_end(L"cslib.h++", 3);
-        // is "c..."
+        cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
     if (maxLength < TRIM_WITH.length())
-      throw_up("maxLength must be greater than or equal to the length of TRIM_WITH (", TRIM_WITH.length(), ')');
-    wstr_t wstr(wstrsv);
-    if (wstr.length() > maxLength)
-      return wstr.substr(0, maxLength - TRIM_WITH.length()) + TRIM_WITH.data();
-    return wstr;
+      throw_up("maxLength must be at least ", TRIM_WITH.length(), " (TRIM_WITH length)");
+    if (wstrsv.length() <= maxLength)
+      return wstr_t(wstrsv);
+    return wstr_t(wstrsv.substr(0, maxLength - TRIM_WITH.length())) + TRIM_WITH.data();
   }
-  wstr_t shorten_begin(wstrv_t wstrsv, size_t maxLength) {
+
+  MACRO shorten_begin(wstrv_t wstrsv, size_t maxLength) {
     /*
-      Trim and content of `TRIM_WITH` to the beginning of the string
-      if it exceeds `maxLength`.
       Example:
-        cslib::shorten_begin(L"cslib.h++", 3);
-        // is "...h++"
+        cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
     if (maxLength < TRIM_WITH.length())
-      throw_up("maxLength must be greater than or equal to the length of TRIM_WITH (", TRIM_WITH.length(), ')');
-    wstr_t wstr(wstrsv);
-    if (wstr.length() > maxLength)
-      return TRIM_WITH.data() + wstr.substr(wstr.length() - (maxLength - TRIM_WITH.length()));
-    return wstr;
+      throw_up("maxLength must be at least ", TRIM_WITH.length(), " (TRIM_WITH length)");
+    if (wstrsv.length() <= maxLength)
+      return wstr_t(wstrsv);
+    return wstr_t(TRIM_WITH) + wstr_t(wstrsv.substr(wstrsv.length() - (maxLength - TRIM_WITH.length())));
   }
 
 
 
-  wstr_t upper(wstrv_t wstrsv) {
+  MACRO upper(wstrv_t wstrsv) {
     /*
-      Converts it to uppercase.
       Example:
-        to_upper("csLib.h++");
-        // is "CSLIB.H++"
+        cslib::upper(L"csLib.h++"); // "CSLIB.H++"
     */
     wstr_t str(wstrsv);
-    return std::transform(str.begin(), str.end(), str.begin(), ::toupper), str;
+    std::transform(str.begin(), str.end(), str.begin(), ::toupper);
+    return str;
   }
-  void upper_ref(wstr_t& wstr) {
+  MACRO upper_ref(wstr_t& wstr) {
     std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::toupper);
   }
 
-  wstr_t lower(wstrv_t wstrsv) {
+  MACRO lower(wstrv_t wstrsv) {
     /*
-      Converts it to lowercase.
       Example:
-        to_lower("csLib.h++");
-        // is "cslib.h++"
+        cslib::lower(L"csLib.h++"); // "cslib.h++"
     */
     wstr_t str(wstrsv);
-    return std::transform(str.begin(), str.end(), str.begin(), ::tolower), str;
+    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
+    return str;
   }
-  void lower_ref(wstr_t& wstr) {
+  MACRO lower_ref(wstr_t& wstr) {
     std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::tolower);
   }
 
@@ -930,7 +844,6 @@ namespace cslib {
 
   TinySTL::Vector<wstr_t> separate(wstrv_t wstrsv, wchar_t delimiter) {
     /*
-      Same as above, but for wide strings.
       Example:
         cslib::separate(L"Hello World", ' ') // {"Hello", "World"}
     */
@@ -1003,7 +916,7 @@ namespace cslib {
     */
 
     if (isWcharIOEnabled) {
-      std::wcout << L"[⛓️‍💥] Console already initialized with UTF-8 encoding.\n";
+      std::wcout << L"[🧌] Console already initialized with UTF-8 encoding.\n";
       return;
     }
 
@@ -1011,10 +924,9 @@ namespace cslib {
     for (strv_t locale_name : POSSIBLE_UTF8_LOCALES) {
       try {
         utf8Locale = std::locale(locale_name.data());
-      } catch (const std::runtime_error&) {
-        // Ignore the exception, try the next locale
-        std::wcerr << L"[⚠️] Failed to set locale: " << locale_name.data() << L". Trying next...\n";
       }
+      catch (const std::runtime_error&) {}
+      // Ignore the exception, try the next locale
     }
     if (utf8Locale.name().empty())
       throw_up("Failed to find a suitable UTF-8 locale. Ensure your system supports UTF-8 locales");
@@ -1025,13 +937,12 @@ namespace cslib {
     std::wclog.imbue(utf8Locale);
     std::wcerr.imbue(utf8Locale);
 
-    std::wcout << L"[⛓️‍💥] Console initialized with UTF-8 encoding.\n";
+    std::wcout << L"[🧌] Console initialized with UTF-8 encoding.\n";
     isWcharIOEnabled = true;
   }
 
 
 
-  // Classes
   MACRO Bold = L"\033[1m";
   MACRO Underline = L"\033[4m";
   MACRO Italic = L"\033[3m";
@@ -1054,38 +965,20 @@ namespace cslib {
         error << "Something went wrong";
     */
     wstr_t prefix;
-    Out(wstrv_t wprefsv, wstrv_t color = L"") {
+    Out() = default;
+    Out(wstrv_t wprefsv = L"", wstrv_t color = L"") {
       prefix = color;
       prefix += wprefsv;
-      prefix += Reset;
+      if (!color.empty())
+        prefix += Reset;
       prefix += L" ";
     }
-    Out(strv_t prefsv, strv_t color = "") {
-      prefix = to_wstr(color);
-      prefix += to_wstr(prefsv);
-      prefix += Reset;
-      prefix += L" ";
-    }
-    template <typename T>
-    std::wostream& operator<<(const T& msg) const {
-      /*
-        Print to console with the given prefix
-        Example:
-          cslib::Out out(L"Info: ", GREEN);
-          out << "This is an info message" << std::endl;
-      */
-      std::wcout << prefix << msg << std::flush;
+    std::wostream& operator<<(const auto& msg) {
+      std::wcout << prefix << msg;
       return std::wcout;
     }
-    template <typename T>
-    std::wostream& operator<<(T&& msg) const {
-      /*
-        Print to console with the given prefix
-        Example:
-          cslib::Out out(L"Info: ", GREEN);
-          out << "This is an info message" << std::endl;
-      */
-      std::wcout << prefix << std::forward<T>(msg) << std::flush;
+    std::wostream& operator<<(auto&& msg) {
+      std::wcout << prefix << std::forward<decltype(msg)>(msg);
       return std::wcout;
     }
   };
@@ -1093,9 +986,14 @@ namespace cslib {
 
 
   class TimeStamp { public:
-    // A wrapper around std::chrono that I have control over
+    /*
+      A wrapper around std::chrono that I have control over
+    */
     std::chrono::system_clock::time_point timePoint;
-    TimeStamp() {update();}
+    
+
+    // Contructors and error handling
+    TimeStamp() {timePoint = std::chrono::system_clock::now();}
     TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
     TimeStamp(uint sec, uint min, uint hour, uint day, uint month, uint year) {
       /*
@@ -1123,12 +1021,12 @@ namespace cslib {
         std::chrono::sys_days(ymd).time_since_epoch() + hms.to_duration()
       );
     }
-    void update() {
-      timePoint = std::chrono::system_clock::now();
-    }
+
+
+    // Getters
     wstr_t asWstr() const {
       /*
-        Convert the time point to (lighter form of) ISO 8601
+        Convert the time point to (almost) ISO 8601
         in format YYYY-MM-DD HH:MM:SS)..
       */
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
@@ -1165,13 +1063,6 @@ namespace cslib {
       return uint(hms.seconds().count());
     }
   };
-  void sleep_until(const TimeStamp& untilPoint) {
-    // Sleep until the given time point.
-    if (untilPoint.timePoint <= std::chrono::system_clock::now()) {
-      throw_up("Cannot sleep until a time point in the past: ", TimeStamp().asWstr(), " (current time: ", untilPoint.asWstr(), ')');
-    }
-    std::this_thread::sleep_until(untilPoint.timePoint);
-  }
 
 
 
@@ -1206,56 +1097,45 @@ namespace cslib {
   #else
     MACRO PATH_DELIMITER = L'/';
   #endif
-  constexpr wstrv_t fs_type_to_str(std::filesystem::file_type type) {
-    switch (type) {
-      case std::filesystem::file_type::regular: return L"regular file";
-      case std::filesystem::file_type::directory: return L"directory";
-      case std::filesystem::file_type::symlink: return L"symbolic link";
-      case std::filesystem::file_type::block: return L"block device";
-      case std::filesystem::file_type::character: return L"character device";
-      case std::filesystem::file_type::fifo: return L"FIFO (named pipe)";
-      case std::filesystem::file_type::socket: return L"socket";
-      case std::filesystem::file_type::unknown: return L"unknown file type";
-      default: return L"failed to determine file type";
-    }
-  }
   class VirtualPath { public:
-    // Wrapper around std::filesystem::path
-
+    /*
+      Wrapper around std::filesystem::path
+    */
     std::filesystem::path isAt; // Covers move and copy semantics
 
-    void assert_valid() const {
-      if (!std::filesystem::exists(isAt))
-        throw_up("VirtualPath ", to_ptrstr(this), " isn't initialized");
-    }
+
+    // Path management
     std::filesystem::file_type type() const {
-      assert_valid();
       return std::filesystem::status(isAt).type();
     }
+
+    std::chrono::system_clock::time_point last_modified_tp() const {
+      auto ftime = std::filesystem::last_write_time(isAt);
+      return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+    }
+
     VirtualPath parent() const {
       /*
-        Returns the parent path of the path.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
           VirtualPath parent = path.parent();
           // parent = "/gitstuff/cslib"
       */
-      assert_valid();
       if (isAt.parent_path().empty())
-        throw_up("VirtualPath '", to_ptrstr(this), "' has somehow no parent");
+        throw_up("VirtualPath '", to_str(this), "' has somehow no parent");
       return VirtualPath(isAt.parent_path().wstring(), std::filesystem::file_type::directory);
     }
+
     size_t depth() const {
       /*
-        Returns the depth of the path.
         Example:
           VirtualPath path("/gitstuff/cslib/cslib.h++");
           size_t depth = path.depth();
           // depth = 2 (because there are 2 directories before the file)
       */
-      assert_valid();
       return separate(isAt.wstring(), PATH_DELIMITER).size - 1; // -1 for the last element
     }
+
     bool operator==(const VirtualPath& other) const { return this->isAt == other.isAt; }
     bool operator!=(const VirtualPath& other) const { return !(*this == other); }
     bool operator==(wstrv_t other) const { return this->isAt == std::filesystem::path(other); }
@@ -1265,65 +1145,14 @@ namespace cslib {
     bool operator==(const std::filesystem::path& other) const { return this->isAt == other; }
     bool operator!=(const std::filesystem::path& other) const { return !(*this == other); }
 
+
     // Transform into stl
     operator wstr_t() const { return this->isAt.wstring(); }
-    operator str_t() const { return this->isAt.string(); }
     operator std::filesystem::path() const { return this->isAt; }
     operator std::filesystem::path&() { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
     operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // const_cast is safe here
 
-    TimeStamp last_modified() const {
-      /*
-        Last modified date of this instance.
-        Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          TimeStamp lastModified = path.last_modified();
-          // lastModified = 2023-10-01 12:34:56
-        Note:
-          Once more, special thanks to copilot. I scurried
-          through the std::filesystem documentation and
-          couldn't find a usable way to get the last modified
-          date of a file.
-      */
-      std::filesystem::file_time_type ftime = std::filesystem::last_write_time(isAt);
-      std::chrono::system_clock::time_point timePoint = std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
-      std::time_t cftime = std::chrono::system_clock::to_time_t(timePoint);
-      struct tm* timeinfo = std::localtime(&cftime);
-      TimeStamp ts(std::chrono::system_clock::from_time_t(std::mktime(timeinfo)));
-      return ts;
-    }
-    void move_to(const VirtualPath& moveTo) {
-      // Move this instance to a new location and apply changes.
-      this->assert_valid();
-      moveTo.assert_valid();
-      if (moveTo.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
-      if (moveTo == *this)
-        throw_up("Cannot move to the same path: ", this->isAt.wstring());
-      std::filesystem::path willBecome = moveTo.isAt / this->isAt.filename();
-      if (std::filesystem::exists(willBecome))
-        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
-      std::filesystem::rename(this->isAt, willBecome);
-      this->isAt = VirtualPath(willBecome.wstring()).isAt; // Apply changes
-    }
-    VirtualPath copy_into(const VirtualPath& targetDict) const {
-      /*
-        Copies this instance to a new location and returns
-        a new VirtualPath instance pointing to the copied file.
-      */
-      this->assert_valid();
-      targetDict.assert_valid();
-      if (targetDict.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
-      if (targetDict == *this)
-        throw_up("Cannot copy to the same path: ", this->isAt.wstring());
-      std::filesystem::path willBecome = targetDict.isAt / this->isAt.filename();
-      if (std::filesystem::exists(willBecome))
-        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
-      std::filesystem::copy(this->isAt, willBecome);
-      return VirtualPath(willBecome.wstring(), this->type());
-    }
 
     // Constructors
     VirtualPath() = default;
@@ -1336,7 +1165,37 @@ namespace cslib {
     */
     VirtualPath(wstrv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
       if (this->type() != shouldBe)
-        throw_up("Path '", to_ptrstr(this), "' should be of type '", fs_type_to_str(shouldBe), "', but is actually of type '", fs_type_to_str(this->type()), '\'');
+        throw_up("Path '", where, "' initialized with unexpected file type");
+    }
+
+
+    // Complicated methods
+    void move_to(const VirtualPath& moveTo) {
+      if (moveTo.type() != std::filesystem::file_type::directory)
+        throw_up("Target path '", moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+      if (moveTo == *this)
+        throw_up("Cannot move to the same path: ", this->isAt.wstring());
+      std::filesystem::path willBecome = moveTo.isAt / this->isAt.filename();
+      if (std::filesystem::exists(willBecome))
+        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
+      std::filesystem::rename(this->isAt, willBecome);
+      this->isAt = VirtualPath(willBecome.wstring()).isAt; // Apply changes
+    }
+
+    VirtualPath copy_into(const VirtualPath& targetDict) const {
+      /*
+        Copies this instance to a new location and returns
+        a new VirtualPath instance pointing to the copied file.
+      */
+      if (targetDict.type() != std::filesystem::file_type::directory)
+        throw_up("Target path '", targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+      if (targetDict == *this)
+        throw_up("Cannot copy to the same path: ", this->isAt.wstring());
+      std::filesystem::path willBecome = targetDict.isAt / this->isAt.filename();
+      if (std::filesystem::exists(willBecome))
+        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
+      std::filesystem::copy(this->isAt, willBecome);
+      return VirtualPath(willBecome.wstring(), this->type());
     }
   };
 
@@ -1361,7 +1220,6 @@ namespace cslib {
         Note:
           - No error-handling for files larger than available memory
       */
-      is.assert_valid();
       std::wifstream file(is.isAt, openMode);
       if (!file.is_open())
         throw_up("Failed to open file '", is.isAt.wstring(), '\'');
@@ -1369,18 +1227,9 @@ namespace cslib {
         throw_up("Failed to read file '", is.isAt.wstring(), '\'');
       return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
     }
-    wstr_t wstr() const {
-      is.assert_valid();
-      return is.isAt.wstring();
-    }
-    wstr_t extension() const {
-      is.assert_valid();
-      return is.isAt.extension().wstring();
-    }
-    size_t bytes() const {
-      is.assert_valid();
-      return std::filesystem::file_size(is.isAt);
-    }
+    wstr_t wstr() const {return is.isAt.wstring();}
+    wstr_t extension() const {return is.isAt.extension().wstring();}
+    size_t bytes() const {return std::filesystem::file_size(is.isAt);}
   };
 
 
@@ -1392,35 +1241,23 @@ namespace cslib {
     /*
       A temporary file that is created in the system's temporary directory.
       It will be deleted when the object is destroyed.
-      Example:
-        TempFile tempFile;
-        tempFile.write("Hello World");
-        str_t content = tempFile.read();
-        // content = "Hello World"
     */
     File file;
-
     TempFile() {
-      /*
-        Create a temporary file in the system's temporary directory.
-        The file will be deleted when the object is destroyed.
-        File name is generated based on random characters
-      */
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
       str_t randomName;
-      for (size_t i : range(TEMP_FILE_NAME_LEN)) {
+      for (size_t i : range(TEMP_FILE_NAME_LEN))
         switch (roll_dice(0, 2)) {
-          case 0: randomName += wchar_t(roll_dice(L'A', L'Z')); break; // Uppercase letter
-          case 1: randomName += wchar_t(roll_dice(L'a', L'z')); break; // Lowercase letter
-          case 2: randomName += wchar_t(roll_dice(L'0', L'9')); break; // Digit
+          case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
+          case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
+          case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
         }
-      }
       str_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
       file = File(tempDir.wstr() + PATH_DELIMITER + to_wstr(tempFileName));
     }
     ~TempFile() {
       if (!std::filesystem::exists(file.is.isAt)) {
-        std::wcerr << L"[⚠️] Temporary file '" << file.is.isAt.wstring() << L"' was deleted before cleanup.\n";
+        std::wcerr << L"[⚠️] Temporary file '" << file.is.isAt.wstring() << L"' was deleted before cleanup!\n";
         return;
       }
       std::filesystem::remove(file.is.isAt);
@@ -1434,15 +1271,23 @@ namespace cslib {
       Child class of VirtualPath that represents a folder and
       everything in it.
     */
+
     std::vector<VirtualPath> content;
     VirtualPath is;
+
+    void update() {
+      content.clear();
+      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
+        content.push_back(VirtualPath(entry.path().wstring()));
+      content.shrink_to_fit();
+    }
 
     Folder() = default;
     Folder(wstrv_t where) : is(where, std::filesystem::file_type::directory) {update();}
     wstr_t wstr() const {
-      is.assert_valid();
       return is.isAt.wstring();
     }
+
     bool has(const VirtualPath& item) const {
       /*
         Check if the folder contains the given item.
@@ -1452,23 +1297,15 @@ namespace cslib {
           bool exists = folder.has(item);
           // exists = true
       */
-      is.assert_valid();
       return contains(content, item);
     }
     bool has(const File& item) const {
-      is.assert_valid();
-      return contains(content, item.is);
+      Folder shouldBe(this->wstr());
+      return contains(shouldBe, item.is);
     }
     bool has(const Folder& item) const {
-      is.assert_valid();
-      return contains(content, item.is);
-    }
-    void update() {
-      is.assert_valid();
-      content.clear();
-      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
-        content.push_back(VirtualPath(entry.path().wstring()));
-      content.shrink_to_fit();
+      Folder shouldBe(this->wstr());
+      return contains(shouldBe, item.is);
     }
   };
 } // namespace cslib

@@ -21,7 +21,6 @@
 #include <cctype>
 #include <cstdio>
 #include <random>
-#include <thread>
 #include <vector>
 #include <chrono>
 #include <thread>
@@ -53,16 +52,77 @@ namespace cslib {
 
   // Other
   using wstr_t = std::wstring;
-  using wstrsv_t = std::wstring_view;
+  using str_t = std::string;
+  using wstrv_t = std::wstring_view;
+  using strv_t = std::string_view;
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
 
 
-
   // Defined beforehand to avoid circular dependencies
-  template <typename... Args>
-  std::runtime_error up_impl(size_t line, Args&&... messages) {
+  // Find the correct way to convert T to string
+  MACRO to_str(const auto* _p) {
+    if (_p == nullptr)
+      return "nullptr";
+    std::ostringstream oss;
+    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(_p);
+    return oss.str();
+  }
+  template <typename _number_t>
+  requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
+  MACRO to_str(_number_t _n) {
+    return std::to_string(_n);
+  }
+  MACRO to_str(char _c) {
+    return str_t(1, _c);
+  }
+  MACRO to_str(wchar_t _c) { // lossy conversion for wchar_t.
+    return str_t(1, static_cast<char>(_c));
+  }
+  MACRO to_str(strv_t _sv) {
+    return str_t(_sv.begin(), _sv.end());
+  }
+  MACRO to_str(wstrv_t _wsv) { // lossy conversion
+    return str_t(_wsv.begin(), _wsv.end());
+  }
+  str_t to_str(const std::filesystem::path& _p) {
+    return _p.string();
+  }
+
+  // Convert to wide string
+  MACRO to_wstr(const auto* _p) {
+    if (_p == nullptr)
+      return L"nullptr";
+    std::wostringstream woss;
+    woss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(_p);
+    return woss.str();
+  }
+  template <typename _number_t>
+  requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
+  MACRO to_wstr(_number_t _n) {
+    return std::to_wstring(_n);
+  }
+  MACRO to_wstr(char _c) {
+    return wstr_t(1, static_cast<wchar_t>(_c));
+  }
+  MACRO to_wstr(wchar_t _c) {
+    return wstr_t(1, _c);
+  }
+  MACRO to_wstr(strv_t _sv) {
+    return wstr_t(_sv.begin(), _sv.end());
+  }
+  MACRO to_wstr(wstrv_t _wsv) {
+    return wstr_t(_wsv.begin(), _wsv.end());
+  }
+  wstr_t to_wstr(std::filesystem::path _p) {
+    return _p.wstring();
+  }
+
+
+
+  template <typename... _args>
+  std::runtime_error up_impl(size_t _l, _args&&... _msgs) {
     /*
       Create a custom runtime error with the given messages.
       Example:
@@ -71,101 +131,12 @@ namespace cslib {
           throw up("Hello", "World", 123, L"Wide string");
     */
     wstr_t message;
-    ((message += to_wstr(std::forward<Args>(messages))), ...);
+    ((message += to_wstr(std::forward<_args>(_msgs))), ...);
     std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
     std::filesystem::path currentPath = std::filesystem::current_path();
-    return std::runtime_error("std::runtime_error called from line " + std::to_string(line) + " in workspace '" + currentPath.string() + "'");
+    return std::runtime_error("std::runtime_error called from line " + std::to_string(_L) + " in workspace '" + currentPath.string() + "'");
   }
   #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
-
-
-
-  // Find the correct way to convert T to string
-  template <typename T>
-  std::string to_ptrstr(T* value) {
-    /*
-      Convert a pointer to a cool looking
-      pointer address string.
-      Example:
-        cslib::to_str(&value) // "0x123"
-    */
-    if (value == nullptr)
-      return "nullptr"; // Handle null pointers
-    std::ostringstream oss;
-    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(value);
-    return oss.str();
-  }
-  MACRO to_str(char value) {
-    return std::string(1, value); // Convert char to string
-  }
-  MACRO to_str(wchar_t value) {
-    return std::string(1, static_cast<char>(value)); // Convert wchar_t to string
-  }
-  MACRO to_str(std::string_view value) {
-    /*
-      Also for const char*
-    */
-    return std::string(value.data(), value.data() + value.size());
-  }
-  MACRO to_str(wstrsv_t value) {
-    /*
-      Also for const wchar_t*
-      Note: This is a lossy conversion, as wchar_t can represent characters
-      that cannot be represented in a single byte string.
-      Use with caution, as it may lead to data loss.
-    */
-    return std::string(value.data(), value.data() + value.size());
-  }
-  template <std::integral T>
-  MACRO to_str(T value) {
-    return std::to_string(value);
-  }
-  template <std::floating_point T>
-  MACRO to_str(T value) {
-    return std::to_string(value);
-  }
-
-  // Find the correct way to convert T to wide string
-  template <typename T>
-  MACRO to_ptrwstr(T* value) {
-    /*
-      Convert a pointer to a cool looking
-      pointer address string.
-      Example:
-        cslib::to_wstr(&value) // "0x123"
-    */
-    if (value == nullptr)
-      return L"nullptr"; // Handle null pointers
-    std::wostringstream oss;
-    oss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(value);
-    return oss.str();
-  }
-  MACRO to_wstr(char value) {
-    return wstr_t(1, static_cast<wchar_t>(value));
-  }
-  MACRO to_wstr(wchar_t value) {
-    return wstr_t(1, value);
-  }
-  MACRO to_wstr(std::string_view value) {
-    /*
-      Also for const char*
-    */
-    return wstr_t(value.data(), value.data() + value.size());
-  }
-  MACRO to_wstr(wstrsv_t value) {
-    /*
-      Also for const wchar_t*
-    */
-    return wstr_t(value.data(), value.data() + value.size());
-  }
-  template <std::integral T>
-  MACRO to_wstr(T value) {
-    return std::to_wstring(value);
-  }
-  template <std::floating_point T>
-  MACRO to_wstr(T value) {
-    return std::to_wstring(value);
-  }
 
 
 
@@ -181,7 +152,6 @@ namespace cslib {
           The size and capacity are 4 bytes each, when padding
           is done, memory-usage isn't doubled
       */
-
       T* data;
       uint32_t size;
       uint32_t capacity;
@@ -210,21 +180,21 @@ namespace cslib {
         delete[] data;
         data = new_data;
       }
-      void push_back(T&& value) {
+      void push_back(T&& _new_v) {
         if (size == capacity)
           increment_capacity();
-        data[++size] = std::move(value);
+        data[++size] = std::move(_new_v);
       }
-      void push_back(const T& value) {
+      void push_back(const T& _new_v) {
         if (size == capacity)
           increment_capacity();
-        data[++size] = value;
+        data[++size] = _new_v;
       }
-      template <typename... Args>
-      void emplace_back(Args&&... args) {
+      template <typename... _args>
+      void emplace_back(_args&&... _args) {
         if (size == capacity)
           increment_capacity();
-        data[++size] = T(std::forward<Args>(args)...);
+        data[++size] = T(std::forward<_args>(_args)...);
       }
       void pop_back() {
         if (size == 0)
@@ -235,21 +205,21 @@ namespace cslib {
         if (data != nullptr)
           delete[] data;
       }
-      T& operator[](uint32_t index) {
-        if (index >= size)
-          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", index, " >= ", size);
-        return data[index];
+      T& operator[](uint32_t _i) {
+        if (_i >= size)
+          throw_up("Index out of bounds for Vector at ", to_ptrstr(this), ": ", _i, " >= ", size);
+        return data[_i];
       }
-      bool operator==(const Vector<T>& other) const {
-        if (size != other.size)
+      bool operator==(const Vector<T>& _o) const {
+        if (size != _o.size)
           return false;
         for (uint32_t i = 0; i < size; ++i)
-          if (data[i] != other.data[i])
+          if (data[i] != _o.data[i])
             return false;
         return true;
       }
-      bool operator!=(const Vector<T>& other) const {
-        return !(*this == other);
+      bool operator!=(const Vector<T>& _o) const {
+        return !(*this == _o);
       }
 
       // Transform into stl
@@ -284,77 +254,77 @@ namespace cslib {
 
       // Standard constructors
       Vector() : data(nullptr), size(0), capacity(0) {}
-      Vector(uint32_t initialCapacity) : size(0), capacity(initialCapacity) {
-        if (initialCapacity == 0)
+      Vector(uint32_t _initCapacity) : size(0), capacity(_initCapacity) {
+        if (_initCapacity == 0)
           throw_up("Vector capacity must be greater than 0");
-        data = new T[initialCapacity];
+        data = new T[_initCapacity];
       }
-      Vector(std::initializer_list<T> initList) : size(initList.size()), capacity(initList.size()) {
+      Vector(std::initializer_list<T> _initList) : size(_initList.size()), capacity(_initList.size()) {
         // Copies whatever is in the initializer list
-        if (initList.size() == 0)
+        if (_initList.size() == 0)
           throw_up("Vector initializer list cannot be empty");
-        data = new T[initList.size()];
+        data = new T[_initList.size()];
         uint32_t index = -1;
-        for (const T& item : initList)
+        for (const T& item : _initList)
           data[++index] = item;
       }
-      Vector(const std::vector<T>& vec) : size(vec.size()), capacity(vec.capacity()) {
-        if (vec.empty())
+      Vector(const std::vector<T>& _vec) : size(_vec.size()), capacity(_vec.capacity()) {
+        if (_vec.empty())
           throw_up("Vector cannot be initialized from an empty std::vector");
         data = new T[vec.size()];
         uint32_t index = -1;
-        for (const T& item : vec)
+        for (const T& item : _vec)
           data[++index] = item;
       }
-      Vector(std::vector<T>&& vec) : size(vec.size()), capacity(vec.capacity()) {
-        if (vec.empty())
+      Vector(std::vector<T>&& _vec) : size(_vec.size()), capacity(_vec.capacity()) {
+        if (_vec.empty())
           throw_up("Vector cannot be initialized from an empty std::vector");
         data = new T[vec.size()];
         uint32_t index = -1;
-        for (T& item : vec)
+        for (T& item : _vec)
           data[++index] = item;
       }
 
       // Copy operations
-      Vector(const Vector& other) : size(other.size), capacity(other.capacity) {
-        if (other.data == nullptr)
-          throw_up("Cannot copy from an empty vector at ", to_ptrstr(&other));
+      Vector(const Vector& _o) : size(_o.size), capacity(_o.capacity) {
+        if (_o.data == nullptr)
+          throw_up("Cannot copy from an empty vector at ", to_ptrstr(&_o));
         data = new T[capacity];
         uint32_t index = -1;
-        for (const T& item : other)
+        for (const T& item : _o)
           data[++index] = item;
       }
-      Vector& operator=(const Vector& other) {
-        if (this != &other) {
+      Vector& operator=(const Vector& _o) {
+        if (this != &_o) {
           this->wipe_clean();
-          size = other.size;
-          capacity = other.capacity;
-          if (other.data == nullptr)
-            throw_up("Cannot copy from an empty vector at ", to_ptrstr(&other));
+          size = _o.size;
+          capacity = _o.capacity;
+          if (_o.data == nullptr)
+            throw_up("Cannot copy from an empty vector at ", to_ptrstr(&_o));
           data = new T[capacity];
           uint32_t index = -1;
-          for (const T& item : other)
+          for (const T& item : _o)
             data[++index] = item;
         }
         return *this;
       }
       // Move operations
-      Vector(Vector&& other) noexcept : data(other.data), size(other.size), capacity(other.capacity) {
-        other.data = nullptr;
-        other.size = 0;
-        other.capacity = 0;
+      Vector(Vector&& _o) noexcept : data(_o.data), size(_o.size), capacity(_o.capacity) {
+        _o.data = nullptr;
+        _o.size = 0;
+        _o.capacity = 0;
       }
-      Vector& operator=(Vector&& other) noexcept {
-        if (this != &other) {
+      Vector& operator=(Vector&& _o) noexcept {
+        if (this != &_o) {
           delete[] data;
-          data = other.data;
-          size = other.size;
-          capacity = other.capacity;
+          data = _o.data;
+          size = _o.size;
+          capacity = _o.capacity;
           // No need to call wipe_clean() here
 
-          other.data = nullptr;
-          other.size = 0;
-          other.capacity = 0;
+          _o.data = nullptr;
+          _o.size = 0;
+          _o.capacity = 0;
         }
         return *this;
       }
@@ -362,7 +332,7 @@ namespace cslib {
 
 
 
-    template <size_t N, typename char_t = wchar_t>
+    template <size_t _ar_size, typename _char_t = wchar_t>
     class String { public:
       /*
         Static fixed size string. It can hold up to `N` characters and is
@@ -377,9 +347,9 @@ namespace cslib {
           // str3 = {'H', 'i', '\0', 'm' ('m' could have been used
           for something else earlier but ignored after null-termination)}
       */
-      static_assert(N > 0, "String size must be greater than 0");
+      static_assert(_ar_size > 0, "String size must be greater than 0");
 
-      char_t data[N] = {0};
+      _char_t data[_ar_size] = {0};
 
       constexpr size_t length() const {
         /*
@@ -396,21 +366,34 @@ namespace cslib {
       constexpr char_t* end() { return data + length(); }
       constexpr const char_t* begin() const { return data; }
       constexpr const char_t* end() const { return data + length(); }
-      constexpr void append(const char_t& c) {
+      constexpr void append(const char_t& _c) {
         size_t len = length();
-        if (len >= N)
-          throw_up("String (", to_ptrstr(this), ") containing '", to_str(*this), "' capacity exceeded: ", N);
-        data[len] = c;
-        if (len + 1 < N)
+        if (len >= _ar_size)
+          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", _ar_size);
+        data[len] = _c;
+        if (len + 1 < _ar_size)
           data[len + 1] = 0;
       }
+      constexpr void append(const char_t* _str_b) {
+        size_t len = length();
+        size_t str_b_len = 0;
+        while (_str_b[str_b_len] != 0 and str_b_len < _ar_size)
+          ++str_b_len;
+        if (len + str_b_len >= _ar_size)
+          throw_up("String (", to_ptrstr(this), ") capacity exceeded: ", _ar_size);
+        for (size_t i = 0; i < str_b_len; ++i)
+          data[len + i] = _str_b[i];
+        if (len + str_b_len < _ar_size)
+          data[len + str_b_len] = 0;
+      }
+
       constexpr void wipe_clean() {
-        for (size_t i = 0; i < N; ++i)
+        for (size_t i = 0; i < _ar_size; ++i)
           data[i] = 0;
       }
-      constexpr char_t& at(size_t index) {
-        if (index >= N)
-          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", N);
+      constexpr _char_t& at(size_t index) {
+        if (index >= _ar_size)
+          throw_up("Index out of bounds for String at ", to_ptrstr(this), ": ", index, " >= ", _ar_size);
         return data[index];
       }
       constexpr bool operator==(const String& other) const {
@@ -426,10 +409,10 @@ namespace cslib {
       }
 
       // Transform into stl (lossy conversion for chars)
-      constexpr operator std::string() const { return std::string(data, data + length()); }
-      constexpr operator std::string&&() { return std::move(std::string(*this)); }
-      constexpr operator std::string*() { return new std::string(*this); }
-      constexpr operator std::string*() const { return new std::string(*this); }
+      constexpr operator str_t() const { return str_t(data, data + length()); }
+      constexpr operator str_t&&() { return std::move(str_t(*this)); }
+      constexpr operator str_t*() { return new str_t(*this); }
+      constexpr operator str_t*() const { return new str_t(*this); }
       constexpr operator std::wstring() const { return std::wstring(data, data + length()); }
       constexpr operator std::wstring&&() { return std::move(std::wstring(*this)); }
       constexpr operator std::wstring*() { return new std::wstring(*this); }
@@ -440,7 +423,7 @@ namespace cslib {
           Example:
             std::cout << cslib::String<5>("Hello") << std::endl;
         */
-        return os << std::string(str.data, str.data + str.length());
+        return os << str_t(str.data, str.data + str.length());
       }
       constexpr friend std::wostream& operator<<(std::wostream& os, const String& str) {
         /*
@@ -453,9 +436,9 @@ namespace cslib {
 
       // Standard constructors
       constexpr String() = default;
-      constexpr String(std::string_view otherStr) {
+      constexpr String(strv_t otherStr) {
         /*
-          Initialize the string with a std::string_view.
+          Initialize the string with a strv_t.
           Note:
             This is a lossy conversion, as char_t can represent characters
             that cannot be represented in a single byte string.
@@ -469,7 +452,7 @@ namespace cslib {
         if (index + 1 < N)
           data[++index] = 0;
       }
-      constexpr String(wstrsv_t otherWstr) {
+      constexpr String(wstrv_t otherWstr) {
         if (otherWstr.size() >= N)
           throw_up("Constructing string view '", to_str(otherWstr), "' with size ", otherWstr.size(), " exceeds capacity ", N);
         size_t index = -1;
@@ -489,7 +472,7 @@ namespace cslib {
       // Copy operations
       constexpr String(const String& other) {
         if (other.length() >= N)
-          throw_up("Copying string '", to_str(std::string(other)), "' with size ", other.length(), " exceeds capacity ", N);
+          throw_up("Copying string '", to_str(str_t(other)), "' with size ", other.length(), " exceeds capacity ", N);
         size_t index = -1;
         for (const char_t& c : other)
           data[++index] = c;
@@ -500,7 +483,7 @@ namespace cslib {
         if (this != &other) {
           this->wipe_clean();
           if (other.length() >= N)
-            throw_up("Copying string '", to_str(std::string(other)), "' with size ", other.length(), " exceeds capacity ", N);
+            throw_up("Copying string '", to_str(str_t(other)), "' with size ", other.length(), " exceeds capacity ", N);
           size_t index = -1;
           for (const char_t& c : other)
             data[++index] = c;
@@ -724,27 +707,23 @@ namespace cslib {
 
 
 
-  template <typename T>
-  void print(const T& msg) {
-    std::wcout << msg << std::flush;
+  void print(const auto& _msg) {
+    std::wcout << _msg;
   }
-  template <typename T>
-  void print(T&& msg) {
-    std::wcout << std::forward<T>(msg) << std::flush;
+  void print(const auto&& _msg) {
+    std::wcout << std::forward<decltype(_msg)>(_msg);
   }
-
-  template <typename T>
-  void println(const T& msg) {
-    std::wcout << msg << std::endl;
+  void printnd(const auto& _msg) {
+    // Print and flush after
+    std::wcout << _msg << std::flush;
   }
-  template <typename T>
-  void println(T&& msg) {
-    std::wcout << std::forward<T>(msg) << std::endl;
+  void printnd(const auto&& _msg) {
+    std::wcout << std::forward<decltype(_msg)>(_msg) << std::flush;
   }
 
 
 
-  void sh_call(std::string_view command) {
+  void sh_call(strv_t command) {
     /*
       Blocking system call
     */
@@ -784,14 +763,14 @@ namespace cslib {
 
 
 
-  std::string get_env(std::string_view var) {
+  str_t get_env(strv_t var) {
     /*
       Get the value of an environment variable.
     */
     const char *const envCStr = getenv(var.data());
     if (envCStr == NULL)
       throw_up("Environment variable '", var, "' not found");
-    return std::string(envCStr);
+    return str_t(envCStr);
   }
 
 
@@ -868,14 +847,14 @@ namespace cslib {
 
 
 
-  TinySTL::Vector<std::string_view> parse_cli_args(int argc, const char *const argv[]) {
+  TinySTL::Vector<strv_t> parse_cli_args(int argc, const char *const argv[]) {
     /*
       Parse command line arguments and return them as a
       vector of strings.
       Note:
         The first argument is the program name, so we skip it
     */
-    TinySTL::Vector<std::string_view> args;
+    TinySTL::Vector<strv_t> args;
     if (argc <= 1)
       return args; // No arguments provided
     for (int i : range(1, argc - 1))
@@ -885,8 +864,8 @@ namespace cslib {
 
 
 
-  FIXED wstrsv_t TRIM_WITH = L"...";
-  wstr_t shorten_end(wstrsv_t wstrsv, size_t maxLength) {
+  FIXED wstrv_t TRIM_WITH = L"...";
+  wstr_t shorten_end(wstrv_t wstrsv, size_t maxLength) {
     /*
       Trim and content of `TRIM_WITH` to the end of the string
       if it exceeds `maxLength`.
@@ -901,7 +880,7 @@ namespace cslib {
       return wstr.substr(0, maxLength - TRIM_WITH.length()) + TRIM_WITH.data();
     return wstr;
   }
-  wstr_t shorten_begin(wstrsv_t wstrsv, size_t maxLength) {
+  wstr_t shorten_begin(wstrv_t wstrsv, size_t maxLength) {
     /*
       Trim and content of `TRIM_WITH` to the beginning of the string
       if it exceeds `maxLength`.
@@ -919,7 +898,7 @@ namespace cslib {
 
 
 
-  wstr_t upper(wstrsv_t wstrsv) {
+  wstr_t upper(wstrv_t wstrsv) {
     /*
       Converts it to uppercase.
       Example:
@@ -933,7 +912,7 @@ namespace cslib {
     std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::toupper);
   }
 
-  wstr_t lower(wstrsv_t wstrsv) {
+  wstr_t lower(wstrv_t wstrsv) {
     /*
       Converts it to lowercase.
       Example:
@@ -949,7 +928,7 @@ namespace cslib {
 
 
 
-  TinySTL::Vector<wstr_t> separate(wstrsv_t wstrsv, wchar_t delimiter) {
+  TinySTL::Vector<wstr_t> separate(wstrv_t wstrsv, wchar_t delimiter) {
     /*
       Same as above, but for wide strings.
       Example:
@@ -989,16 +968,27 @@ namespace cslib {
 
 
 
-  wstr_t input() {
+  wstr_t do_io(std::wistream& winStream) {
     wstr_t input;
-    std::getline(std::wcin, input);
+    std::getline(winStream, input);
     return input;
+  }
+  void do_io(std::wistream& winStream, std::wostream& woutStream) {
+    woutStream << do_io(winStream) << std::flush;
+  }
+  str_t do_io(std::istream& inStream) {
+    str_t input;
+    std::getline(inStream, input);
+    return input;
+  }
+  void do_io(std::istream& inStream, std::ostream& outStream) {
+    outStream << do_io(inStream) << std::flush;
   }
 
 
 
   // Get the first available UTF-8 locale
-  FIXED std::array<std::string_view, 6> utf8_locales = {
+  FIXED std::array<strv_t, 6> POSSIBLE_UTF8_LOCALES = {
     "en_US.UTF-8",
     "en_US.utf8",
     "C.UTF-8",
@@ -1006,28 +996,37 @@ namespace cslib {
     "C.utf8",
     "POSIX.utf8"
   };
+  SHARED bool isWcharIOEnabled = false;
   void enable_wchar_io() {
-    // Set all io-streaming globally to UTF-8 encoding
+    /*
+      Set all io-streaming globally to UTF-8 encoding
+    */
 
-    std::locale utf8_locale;
-    for (std::string_view locale_name : utf8_locales) {
+    if (isWcharIOEnabled) {
+      std::wcout << L"[⛓️‍💥] Console already initialized with UTF-8 encoding.\n";
+      return;
+    }
+
+    std::locale utf8Locale;
+    for (strv_t locale_name : POSSIBLE_UTF8_LOCALES) {
       try {
-        utf8_locale = std::locale(locale_name.data());
+        utf8Locale = std::locale(locale_name.data());
       } catch (const std::runtime_error&) {
         // Ignore the exception, try the next locale
         std::wcerr << L"[⚠️] Failed to set locale: " << locale_name.data() << L". Trying next...\n";
       }
     }
-    if (utf8_locale.name().empty())
+    if (utf8Locale.name().empty())
       throw_up("Failed to find a suitable UTF-8 locale. Ensure your system supports UTF-8 locales");
 
-    std::locale::global(utf8_locale);
-    std::wcout.imbue(utf8_locale);
-    std::wcin.imbue(utf8_locale);
-    std::wclog.imbue(utf8_locale);
-    std::wcerr.imbue(utf8_locale);
+    std::locale::global(utf8Locale);
+    std::wcout.imbue(utf8Locale);
+    std::wcin.imbue(utf8Locale);
+    std::wclog.imbue(utf8Locale);
+    std::wcerr.imbue(utf8Locale);
 
     std::wcout << L"[⛓️‍💥] Console initialized with UTF-8 encoding.\n";
+    isWcharIOEnabled = true;
   }
 
 
@@ -1055,13 +1054,13 @@ namespace cslib {
         error << "Something went wrong";
     */
     wstr_t prefix;
-    Out(wstrsv_t wprefsv, wstrsv_t color = L"") {
+    Out(wstrv_t wprefsv, wstrv_t color = L"") {
       prefix = color;
       prefix += wprefsv;
       prefix += Reset;
       prefix += L" ";
     }
-    Out(std::string_view prefsv, std::string_view color = "") {
+    Out(strv_t prefsv, strv_t color = "") {
       prefix = to_wstr(color);
       prefix += to_wstr(prefsv);
       prefix += Reset;
@@ -1207,7 +1206,7 @@ namespace cslib {
   #else
     MACRO PATH_DELIMITER = L'/';
   #endif
-  constexpr wstrsv_t fs_type_to_str(std::filesystem::file_type type) {
+  constexpr wstrv_t fs_type_to_str(std::filesystem::file_type type) {
     switch (type) {
       case std::filesystem::file_type::regular: return L"regular file";
       case std::filesystem::file_type::directory: return L"directory";
@@ -1259,16 +1258,16 @@ namespace cslib {
     }
     bool operator==(const VirtualPath& other) const { return this->isAt == other.isAt; }
     bool operator!=(const VirtualPath& other) const { return !(*this == other); }
-    bool operator==(wstrsv_t other) const { return this->isAt == std::filesystem::path(other); }
-    bool operator!=(wstrsv_t other) const { return !(*this == other); }
-    bool operator==(std::string_view other) const { return this->isAt == std::filesystem::path(other);}
-    bool operator!=(std::string_view other) const { return !(*this == other); }
+    bool operator==(wstrv_t other) const { return this->isAt == std::filesystem::path(other); }
+    bool operator!=(wstrv_t other) const { return !(*this == other); }
+    bool operator==(strv_t other) const { return this->isAt == std::filesystem::path(other);}
+    bool operator!=(strv_t other) const { return !(*this == other); }
     bool operator==(const std::filesystem::path& other) const { return this->isAt == other; }
     bool operator!=(const std::filesystem::path& other) const { return !(*this == other); }
 
     // Transform into stl
     operator wstr_t() const { return this->isAt.wstring(); }
-    operator std::string() const { return this->isAt.string(); }
+    operator str_t() const { return this->isAt.string(); }
     operator std::filesystem::path() const { return this->isAt; }
     operator std::filesystem::path&() { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
@@ -1328,14 +1327,14 @@ namespace cslib {
 
     // Constructors
     VirtualPath() = default;
-    VirtualPath(wstrsv_t where) : isAt(std::filesystem::canonical(where.data())) {}
+    VirtualPath(wstrv_t where) : isAt(std::filesystem::canonical(where.data())) {}
     /*
       Constructor that takes a string and checks if it's a valid path.
       Notes:
         - If where is relative, it will be converted to an absolute path.
         - If where is empty, you will crash.
     */
-    VirtualPath(wstrsv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
+    VirtualPath(wstrv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
       if (this->type() != shouldBe)
         throw_up("Path '", to_ptrstr(this), "' should be of type '", fs_type_to_str(shouldBe), "', but is actually of type '", fs_type_to_str(this->type()), '\'');
     }
@@ -1348,13 +1347,13 @@ namespace cslib {
       Child class of VirtualPath that represents a file.
       Example:
         File file("/gitstuff/cslib/cslib.h++");
-        std::string content = file.content();
+        str_t content = file.content();
         // content = "Hello World"
     */
     VirtualPath is; // Composition over inheritance
 
     File() = default;
-    File(wstrsv_t where) : is(where, std::filesystem::file_type::regular) {}
+    File(wstrv_t where) : is(where, std::filesystem::file_type::regular) {}
 
     wstr_t content(std::ios_base::openmode openMode = std::ios::in) const {
       /*
@@ -1396,7 +1395,7 @@ namespace cslib {
       Example:
         TempFile tempFile;
         tempFile.write("Hello World");
-        std::string content = tempFile.read();
+        str_t content = tempFile.read();
         // content = "Hello World"
     */
     File file;
@@ -1408,7 +1407,7 @@ namespace cslib {
         File name is generated based on random characters
       */
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
-      std::string randomName;
+      str_t randomName;
       for (size_t i : range(TEMP_FILE_NAME_LEN)) {
         switch (roll_dice(0, 2)) {
           case 0: randomName += wchar_t(roll_dice(L'A', L'Z')); break; // Uppercase letter
@@ -1416,7 +1415,7 @@ namespace cslib {
           case 2: randomName += wchar_t(roll_dice(L'0', L'9')); break; // Digit
         }
       }
-      std::string tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
+      str_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
       file = File(tempDir.wstr() + PATH_DELIMITER + to_wstr(tempFileName));
     }
     ~TempFile() {
@@ -1439,7 +1438,7 @@ namespace cslib {
     VirtualPath is;
 
     Folder() = default;
-    Folder(wstrsv_t where) : is(where, std::filesystem::file_type::directory) {update();}
+    Folder(wstrv_t where) : is(where, std::filesystem::file_type::directory) {update();}
     wstr_t wstr() const {
       is.assert_valid();
       return is.isAt.wstring();

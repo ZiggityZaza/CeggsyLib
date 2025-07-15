@@ -1256,11 +1256,8 @@ namespace cslib {
       file = File(tempDir.wstr() + PATH_DELIMITER + to_wstr(tempFileName));
     }
     ~TempFile() {
-      if (!std::filesystem::exists(file.is.isAt)) {
-        std::wcerr << L"[⚠️] Temporary file '" << file.is.isAt.wstring() << L"' was deleted before cleanup!\n";
-        return;
-      }
-      std::filesystem::remove(file.is.isAt);
+      if (std::filesystem::exists(file.is.isAt))
+        std::filesystem::remove(file.is.isAt);
     }
   };
 

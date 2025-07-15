@@ -61,59 +61,28 @@ namespace cslib {
 
 
   // Defined beforehand to avoid circular dependencies
-  // Find the correct way to convert T to string
-  MACRO to_str(const auto* _ptr) {
-    if (_ptr == nullptr)
-      return str_t("nullptr");
+  MACRO to_str(const wchar_t *const _cwstr) {
+    size_t len = 0;
+    while (_cwstr[len] != 0)
+      ++len;
+    return std::string(_cwstr, _cwstr + len);
+  }
+  MACRO to_str(const wstr_t& _wstr) {return std::string(_wstr.begin(), _wstr.end());}
+  MACRO to_str(const wstrv_t& _wstrv) {return std::string(_wstrv.begin(), _wstrv.end());}
+  MACRO to_str(const auto& _anything) {
     std::ostringstream oss;
-    oss << "0x" << std::hex << reinterpret_cast<std::uintptr_t>(_ptr);
+    oss << _anything;
     return oss.str();
   }
-  template <typename _number_t>
-  requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
-  MACRO to_str(_number_t _number) {
-    return std::to_string(_number);
-  }
-  MACRO to_str(char _character) {
-    return str_t(1, _character);
-  }
-  MACRO to_str(wchar_t _wideChar) { // lossy conversion for wchar_t.
-    return str_t(1, static_cast<char>(_wideChar));
-  }
-  MACRO to_str(strv_t _sv) {
-    return str_t(_sv.begin(), _sv.end());
-  }
-  MACRO to_str(wstrv_t _wsv) { // lossy conversion
-    return str_t(_wsv.begin(), _wsv.end());
-  }
 
-  // Convert to wide string
-  MACRO to_wstr(const auto* _ptr) {
-    if (_ptr == nullptr)
-      return wstr_t(L"nullptr");
+  MACRO to_wstr(const char *const _cstr) {return std::wstring(_cstr, _cstr + std::strlen(_cstr));}
+  MACRO to_wstr(const str_t& _str) {return std::wstring(_str.begin(), _str.end());}
+  MACRO to_wstr(const strv_t& _strv) {return std::wstring(_strv.begin(), _strv.end());}
+  MACRO to_wstr(const auto& _anything) {
     std::wostringstream woss;
-    woss << L"0x" << std::hex << reinterpret_cast<std::uintptr_t>(_ptr);
+    woss << _anything;
     return woss.str();
   }
-  template <typename _number_t>
-  requires std::is_integral_v<_number_t> or std::is_floating_point_v<_number_t>
-  MACRO to_wstr(_number_t _number) {
-    return std::to_wstring(_number);
-  }
-  MACRO to_wstr(char _character) {
-    return wstr_t(1, static_cast<wchar_t>(_character));
-  }
-  MACRO to_wstr(wchar_t _wideChar) {
-    return wstr_t(1, _wideChar);
-  }
-  MACRO to_wstr(strv_t _sv) {
-    return wstr_t(_sv.begin(), _sv.end());
-  }
-  MACRO to_wstr(wstrv_t _wsv) {
-    return wstr_t(_wsv.begin(), _wsv.end());
-  }
-
-
 
   template <typename... _args>
   std::runtime_error up_impl(size_t _lineInCode, _args&&... _msgs) {
@@ -466,7 +435,7 @@ namespace cslib {
         _other.capacity = 0;
       }
       Vector& operator=(Vector&& _other) noexcept {
-        if (this != &_o) {
+        if (this != &_other) {
           delete[] data;
           data = _other.data;
           size = _other.size;
@@ -1234,35 +1203,6 @@ namespace cslib {
 
 
 
-  MACRO TEMP_FILE_HEAD = "cslibTempFile_";
-  MACRO TEMP_FILE_TAIL = ".tmp";
-  MACRO TEMP_FILE_NAME_LEN = 200 - (std::strlen(TEMP_FILE_HEAD) + std::strlen(TEMP_FILE_TAIL)); // Freebuffer of 55
-  class TempFile { public:
-    /*
-      A temporary file that is created in the system's temporary directory.
-      It will be deleted when the object is destroyed.
-    */
-    File file;
-    TempFile() {
-      Folder tempDir(std::filesystem::temp_directory_path().wstring());
-      str_t randomName;
-      for (size_t i : range(TEMP_FILE_NAME_LEN))
-        switch (roll_dice(0, 2)) {
-          case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
-          case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
-          case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
-        }
-      str_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
-      file = File(tempDir.wstr() + PATH_DELIMITER + to_wstr(tempFileName));
-    }
-    ~TempFile() {
-      if (std::filesystem::exists(file.is.isAt))
-        std::filesystem::remove(file.is.isAt);
-    }
-  };
-
-
-
   class Folder { public:
     /*
       Child class of VirtualPath that represents a folder and
@@ -1298,11 +1238,40 @@ namespace cslib {
     }
     bool has(const File& item) const {
       Folder shouldBe(this->wstr());
-      return contains(shouldBe, item.is);
+      return contains(shouldBe.content, item.is);
     }
     bool has(const Folder& item) const {
       Folder shouldBe(this->wstr());
-      return contains(shouldBe, item.is);
+      return contains(shouldBe.content, item.is);
+    }
+  };
+
+
+
+  MACRO TEMP_FILE_HEAD = "cslibTempFile_";
+  MACRO TEMP_FILE_TAIL = ".tmp";
+  MACRO TEMP_FILE_NAME_LEN = 200 - (std::strlen(TEMP_FILE_HEAD) + std::strlen(TEMP_FILE_TAIL)); // Freebuffer of 55
+  class TempFile { public:
+    /*
+      A temporary file that is created in the system's temporary directory.
+      It will be deleted when the object is destroyed.
+    */
+    File file;
+    TempFile() {
+      Folder tempDir(std::filesystem::temp_directory_path().wstring());
+      str_t randomName;
+      for (size_t i : range(TEMP_FILE_NAME_LEN))
+        switch (roll_dice(0, 2)) {
+          case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
+          case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
+          case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
+        }
+      str_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
+      file = File(tempDir.wstr() + to_wstr(PATH_DELIMITER) + to_wstr(tempFileName));
+    }
+    ~TempFile() {
+      if (std::filesystem::exists(file.is.isAt))
+        std::filesystem::remove(file.is.isAt);
     }
   };
 } // namespace cslib

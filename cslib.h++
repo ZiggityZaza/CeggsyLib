@@ -14,6 +14,7 @@
 #include <iostream> // Already contains many libraries
 #include <optional>
 #include <fstream>
+#include <sstream>
 #include <variant>
 #include <cstring>
 #include <cstdint>
@@ -24,6 +25,7 @@
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <locale>
 #include <array>
 #include <deque>
 #include <cmath>
@@ -61,20 +63,22 @@ namespace cslib {
 
 
   // Defined beforehand to avoid circular dependencies
+  MACRO to_str(wchar_t _wchar) { return std::string(1, static_cast<char>(_wchar)); }
   MACRO to_str(const wchar_t *const _cwstr) {
     size_t len = 0;
-    while (_cwstr[len] != 0)
+    while (_cwstr[len] != 0) // No constexpr for std::wclen
       ++len;
     return std::string(_cwstr, _cwstr + len);
   }
   MACRO to_str(const wstr_t& _wstr) {return std::string(_wstr.begin(), _wstr.end());}
-  MACRO to_str(const wstrv_t& _wstrv) {return std::string(_wstrv.begin(), _wstrv.end());}
+  MACRO to_str(wstrv_t _wstrv) {return std::string(_wstrv.begin(), _wstrv.end());}
   MACRO to_str(const auto& _anything) {
     std::ostringstream oss;
     oss << _anything;
     return oss.str();
   }
 
+  MACRO to_wstr(char _char) { return std::wstring(1, static_cast<wchar_t>(_char)); }
   MACRO to_wstr(const char *const _cstr) {return std::wstring(_cstr, _cstr + std::strlen(_cstr));}
   MACRO to_wstr(const str_t& _str) {return std::wstring(_str.begin(), _str.end());}
   MACRO to_wstr(const strv_t& _strv) {return std::wstring(_strv.begin(), _strv.end());}
@@ -84,6 +88,8 @@ namespace cslib {
     return woss.str();
   }
 
+
+
   template <typename... _args>
   std::runtime_error up_impl(size_t _lineInCode, _args&&... _msgs) {
     /*
@@ -91,13 +97,14 @@ namespace cslib {
       Example:
         #define up(...) up_impl(__LINE__, __VA_ARGS__)
         if (1 == 2)
-          throw up("Hello", "World", 123, L"Wide string");
+          throw up("Aye", L"yo", '!', 123);
     */
-    wstr_t message;
-    ((message += to_wstr(std::forward<_args>(_msgs))), ...);
-    std::wcout << L"\033[1m" << L"\033[31m" << L"Error: " << message << L"\033[0m" << std::endl;
+    std::ostringstream oss;
+    oss << "\033[1m" << "\033[31m" << "Error: ";
+    ((oss << to_str(std::forward<_args>(_msgs))), ...);
+    oss << "\033[0m" << std::flush;
     std::filesystem::path currentPath = std::filesystem::current_path();
-    return std::runtime_error("std::runtime_error called from line " + std::to_string(_lineInCode) + " in workspace '" + currentPath.string() + "'");
+    return std::runtime_error("std::runtime_error called from line " + std::to_string(_lineInCode) + " in workspace '" + currentPath.string() + "' because: " + oss.str());
   }
   #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
 

@@ -106,7 +106,7 @@ namespace cslib {
     std::filesystem::path currentPath = std::filesystem::current_path();
     return std::runtime_error("std::runtime_error called from line " + std::to_string(_lineInCode) + " in workspace '" + currentPath.string() + "' because: " + oss.str());
   }
-  #define throw_up(...) throw up_impl(__LINE__, __VA_ARGS__)
+  #define throw_up(...) throw cslib::up_impl(__LINE__, __VA_ARGS__)
 
 
 
@@ -168,7 +168,9 @@ namespace cslib {
 
       constexpr wchar_t at(size_t _i) {
         if (_i >= N)
-          throw_up("Index out of bounds: ", _i, " >= ", N);
+          throw_up("Index beyond string capacity: ", _i, " >= ", N);
+        if (_i >= length())
+          throw_up("Index beyond string length: ", _i, " >= ", length());
         return data[_i];
       }
 
@@ -196,14 +198,12 @@ namespace cslib {
 
       // Transform into stl (lossy conversion for byte differences)
       constexpr operator str_t() const { return str_t(data, data + length()); }
-      constexpr operator str_t&&() { return std::move(str_t(*this)); }
       constexpr operator wstr_t() const { return std::wstring(data, data + length()); }
-      constexpr operator wstr_t&&() { return std::move(std::wstring(*this)); }
       constexpr friend std::ostream& operator<<(std::ostream& _os, const String& _ourSelf) {
-        return _os << str_t(_ourSelf.begin(), _ourSelf.end());
+        return _os << strv_t(_ourSelf.begin(), _ourSelf.end());
       }
       constexpr friend std::wostream& operator<<(std::wostream& _wos, const String& _ourSelf) {
-        return _wos << wstr_t(_ourSelf.begin(), _ourSelf.end());
+        return _wos << wstrv_t(_ourSelf.begin(), _ourSelf.end());
       }
 
 
@@ -305,7 +305,7 @@ namespace cslib {
 
       void increment_capacity() {
         T* new_data = new T[++capacity];
-        size = -1;
+        uint32_t size = -1;
         for (T& ownData : *this)
           new_data[++size] = ownData;
         delete[] data;
@@ -609,9 +609,14 @@ namespace cslib {
 
 
 
-  // Functions
   void pause(size_t ms) {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+  }
+
+
+
+  MACRO wstrlen(wstrv_t _wstrv) {
+    return _wstrv.length();
   }
 
 
@@ -1255,29 +1260,65 @@ namespace cslib {
 
 
 
-  MACRO TEMP_FILE_HEAD = "cslibTempFile_";
-  MACRO TEMP_FILE_TAIL = ".tmp";
-  MACRO TEMP_FILE_NAME_LEN = 200 - (std::strlen(TEMP_FILE_HEAD) + std::strlen(TEMP_FILE_TAIL)); // Freebuffer of 55
+  File create_file(Folder _inside, wstrv_t _filename) {
+    /*
+      Create a file in the given folder with the given name.
+      If the file already exists, it will be overwritten.
+      Returns a File object pointing to the created file.
+    */
+    if (std::filesystem::exists(_inside.is.isAt / _filename))
+      throw_up("File '", _filename, "' already exists in folder '", _inside.is.isAt.wstring(), '\'');
+    std::filesystem::path newFilePath = _inside.is.isAt / _filename;
+    std::ofstream newFile(newFilePath);
+    if (!newFile.is_open())
+      throw_up("Failed to create file '", newFilePath.wstring(), '\'');
+    newFile.close(); // Close the file to ensure it's created
+    if (!std::filesystem::exists(newFilePath))
+      throw_up("Failed to create file '", newFilePath.wstring(), '\'');
+    return File(newFilePath.wstring());
+  }
+  Folder create_folder(Folder _inside, wstrv_t _folderName) {
+    /*
+      Create a folder in the given folder with the given name.
+      If the folder already exists, it will be overwritten.
+      Returns a Folder object pointing to the created folder.
+    */
+    if (std::filesystem::exists(_inside.is.isAt / _folderName))
+      throw_up("Folder '", _folderName, "' already exists in folder '", _inside.is.isAt.wstring(), '\'');
+    std::filesystem::path newFolderPath = _inside.is.isAt / _folderName;
+    std::filesystem::create_directory(newFolderPath);
+    if (!std::filesystem::exists(newFolderPath))
+      throw_up("Failed to create folder '", newFolderPath.wstring(), '\'');
+    return Folder(newFolderPath.wstring());
+  }
+
+
+
+  MACRO TEMP_FILE_HEAD = L"cslibTempFile_";
+  MACRO TEMP_FILE_TAIL = L".tmp";
+  MACRO TEMP_FILE_NAME_LEN = 200 - (wstrlen(TEMP_FILE_HEAD) + wstrlen(TEMP_FILE_TAIL)); // Some free buffer
   class TempFile { public:
     /*
       A temporary file that is created in the system's temporary directory.
       It will be deleted when the object is destroyed.
     */
     File file;
+    bool keep;
+
     TempFile() {
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
-      str_t randomName;
+      wstr_t randomName;
       for (size_t i : range(TEMP_FILE_NAME_LEN))
         switch (roll_dice(0, 2)) {
           case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
           case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
           case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
         }
-      str_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
-      file = File(tempDir.wstr() + to_wstr(PATH_DELIMITER) + to_wstr(tempFileName));
+      wstr_t tempFileName = TEMP_FILE_HEAD + randomName + TEMP_FILE_TAIL;
+      file = create_file(tempDir, tempFileName);
     }
     ~TempFile() {
-      if (std::filesystem::exists(file.is.isAt))
+      if (std::filesystem::exists(file.is.isAt) and !keep)
         std::filesystem::remove(file.is.isAt);
     }
   };

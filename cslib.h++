@@ -41,10 +41,9 @@
   Prevent multiple inclusions of this header file
 */
 
-
-#if __cplusplus < 202002L
-  #error "Requires C++ >= 20"
-#endif
+#define CPLUSPLUSERRORMAKER_HELPER(x) #x
+#define CPLUSPLUSERRORMAKER(x) CPLUSPLUSERRORMAKER_HELPER(x)
+static_assert(__cplusplus >= 202002L, "Requires C++20 or newer. Current version is " CPLUSPLUSERRORMAKER(__cplusplus));
 
 
 

@@ -3,6 +3,11 @@ using namespace cslib;
 #include <cassert>
 
 
+void title(std::string_view title) {
+  if (!isWcharIOEnabled)
+    enable_wchar_io();
+  std::wcout << L"\n\033[1;34m" << title.data() << L"\033[0m\n";
+}
 
 void log(bool conditionResult, std::string_view conditionExplained) {
   if (!isWcharIOEnabled)
@@ -15,7 +20,7 @@ void log(bool conditionResult, std::string_view conditionExplained) {
 }
 int main() {
 
-  { log(true, "Testing cslib::to_str");
+  { title("Testing cslib::to_str");
     log(to_str(L'A') == "A", "to_str(wchar_t)");
     log(to_str(L"Hello World") == "Hello World", "to_str(const wchar_t *const)");
     log(to_str(std::wstring(L"")) == "", "to_str(const wstr_t&) empty");
@@ -42,7 +47,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::to_wstr");
+  { title("Testing cslib::to_wstr");
     log(to_wstr('A') == L"A", "to_wstr(char)");
     log(to_wstr("Hello World") == L"Hello World", "to_wstr(const char *const)");
     log(to_wstr(std::string("")) == L"", "to_wstr(const str_t&) empty");
@@ -64,7 +69,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::up_impl and throw_up");
+  { title("Testing cslib::up_impl and throw_up");
     std::string shouldBeStdError = "std::runtime_error called from line ";
     shouldBeStdError += std::to_string(__LINE__ + 5);
     shouldBeStdError += " in workspace '";
@@ -80,7 +85,7 @@ int main() {
 
 
 
-  { log(true, "Testing/Benchmarking cslib::pause");
+  { title("Testing/Benchmarking cslib::pause");
     auto start = std::chrono::high_resolution_clock::now();
     pause(1000); // Pause for 1 second
     auto end = std::chrono::high_resolution_clock::now();
@@ -95,7 +100,7 @@ int main() {
 
 
 
-  { log(true, "Testing (constexpr-) cslib::wstrlen(wstrv_t) with implicit conversions");
+  { title("Testing (constexpr-) cslib::wstrlen(wstrv_t) with implicit conversions");
     log(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const)");
     log(wstrlen(L"") == 0, "wstrlen(const wchar_t *const) empty");
     log(wstrlen(L"This is a pretty long string") == 28, "wstrlen(const wchar_t *const) long string");
@@ -118,7 +123,27 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::sh_call");
+  { title("Testing cslib::upper and cslib::lower");
+    std::wstring_view mixedStrv = L"csLib.h++";
+    std::wstring mixedStr = L"csLib.h++";
+    const wchar_t *const mixedCStr = L"csLib.h++";
+    log(upper_str(mixedStrv) == L"CSLIB.H++", "upper(wstrv_t) implicit conversion");
+    log(upper_str(mixedStr) == L"CSLIB.H++", "upper(wstr_t) implicit conversion");
+    log(upper_str(mixedCStr) == L"CSLIB.H++", "upper(const wchar_t *const) implicit conversion");
+    log(lower_str(mixedStrv) == L"cslib.h++", "lower(wstrv_t) implicit conversion");
+    log(lower_str(mixedStr) == L"cslib.h++", "lower(wstr_t) implicit conversion");
+    log(lower_str(mixedCStr) == L"cslib.h++", "lower(const wchar_t *const) implicit conversion");
+    static_assert(upper_str(L"csLib.h++") == L"CSLIB.H++", "upper_str constexpr with implicit conversion");
+    static_assert(lower_str(L"csLib.h++") == L"cslib.h++", "lower_str constexpr with implicit conversion");
+    static_assert(upper_str(std::wstring_view(L"csLib.h++")) == L"CSLIB.H++", "upper_str constexpr with wstrv_t");
+    static_assert(lower_str(std::wstring_view(L"csLib.h++")) == L"cslib.h++", "lower_str constexpr with wstrv_t");
+    static_assert(upper_str(std::wstring(L"csLib.h++")) == L"CSLIB.H++", "upper_str constexpr with wstr_t");
+    static_assert(lower_str(std::wstring(L"csLib.h++")) == L"cslib.h++", "lower_str constexpr with wstr_t");
+  }
+
+
+
+  { title("Testing cslib::sh_call");
     sh_call("echo cslib testing"); // Shouldn't throw
     try {
       sh_call("non_existing_command");
@@ -131,7 +156,11 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::contains");
+  { title("Skipped clear_console cuz difficult to test in a non-interactive environment"); }
+
+
+
+  { title("Testing cslib::contains");
     std::vector<int> vec = {1, 2, 3, 4, 5};
     std::deque<int> deq = {1, 2, 3, 4, 5};
     std::set<int> set = {1, 2, 3, 4, 5};
@@ -156,7 +185,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::have_something_common");
+  { title("Testing cslib::have_something_common");
     std::vector<int> vec1 = {1, 2, 3};
     std::vector<int> vec2 = {3, 4, 5};
     std::vector<int> vec3 = {6, 7, 8};
@@ -205,7 +234,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::get_env");
+  { title("Testing cslib::get_env");
     try {
       std::string envValue = get_env("PATH");
       log(!envValue.empty(), "get_env should return a non-empty value for existing environment variable");
@@ -224,7 +253,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::range");
+  { title("Testing cslib::range");
     std::vector<int> r1 = range(5);
     log(r1 == std::vector<int>({0, 1, 2, 3, 4}), "range(5) should return [0, 1, 2, 3, 4]");
     std::vector<int> r2 = range(2, 5);
@@ -241,7 +270,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::retry");
+  { title("Testing cslib::retry");
     auto start = std::chrono::high_resolution_clock::now();
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
@@ -307,7 +336,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::parse_cli_args");
+  { title("Testing cslib::parse_cli_args");
     const char *args[] = {"program", "arg1", "arg2", "arg3"};
     std::vector<strv_t> parsedArgs = parse_cli_args(4, args);
     log(parsedArgs.size() == 3, "parse_cli_args should return 3 arguments");
@@ -318,7 +347,7 @@ int main() {
 
 
 
-  { log(true, "Testing cslib::shorten_end/begin"); // No narrow string support
+  { title("Testing cslib::shorten_end/begin"); // No narrow string support
     std::wstring str = L"This is a pretty long string";
     log(shorten_end(str, 10) == L"This is...", "shorten_end with length 10");
     log(shorten_begin(str, 10) == L"... string", "shorten_begin with length 10");
@@ -341,8 +370,4 @@ int main() {
     static_assert(shorten_end(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_end constexpr with length greater than string length should return original string");
     static_assert(shorten_begin(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_begin constexpr with length greater than string length should return original string");
   }
-
-
-
-  
 }

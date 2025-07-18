@@ -122,12 +122,33 @@ namespace cslib {
 
 
 
-  void sh_call(strv_t command) {
+  MACRO upper_chr(wchar_t _wchar) {
+    return (_wchar >= L'a' and _wchar <= L'z') ? (_wchar - (L'a' - L'A')) : _wchar;
+  }
+  MACRO upper_str(wstrv_t _wstrv) {
+    std::wstring result(_wstrv.data());
+    for (wchar_t& c : result)
+      c = upper_chr(c);
+    return result;
+  }
+  MACRO lower_chr(wchar_t _wchar) {
+    return (_wchar >= L'A' and _wchar <= L'Z') ? (_wchar + (L'a' - L'A')) : _wchar;
+  }
+  MACRO lower_str(wstrv_t _wstrv) {
+    std::wstring result(_wstrv.data());
+    for (wchar_t& c : result)
+      c = lower_chr(c);
+    return result;
+  }
+
+
+
+  void sh_call(strv_t _command) {
     /*
       Blocking system call
     */
-    if (system(command.data()) != 0)  
-      throw_up("Failed to execute command: '", command, "'");
+    if (system(_command.data()) != 0)  
+      throw_up("Failed to execute command: '", _command, "'");
   }
 
 
@@ -142,31 +163,31 @@ namespace cslib {
 
 
 
-  MACRO contains(const auto& lookIn, const auto& lookFor) {
+  MACRO contains(const auto& _lookIn, const auto& _lookFor) {
     /*
       does `container` contain `key`
     */
-    return std::find(lookIn.begin(), lookIn.end(), lookFor) != lookIn.end();
+    return std::find(_lookIn.begin(), _lookIn.end(), _lookFor) != _lookIn.end();
   }
-  MACRO have_something_common(const auto& c1, const auto& c2) {
+  MACRO have_something_common(const auto& _cont1, const auto& _cont2) {
     /*
       do `c1` and `c2` contain similar keys
     */
-    for (auto item : c1)
-      if (contains(c2, item))
+    for (const auto& item : _cont1)
+      if (contains(_cont2, item))
         return true;
     return false;
   }
 
 
 
-  str_t get_env(strv_t var) {
+  str_t get_env(strv_t _var) {
     /*
       Get the value of an environment variable.
     */
-    const char *const envCStr = getenv(var.data());
+    const char *const envCStr = getenv(_var.data());
     if (envCStr == NULL)
-      throw_up("Environment variable '", var, "' not found");
+      throw_up("Environment variable '", _var, "' not found");
     return str_t(envCStr);
   }
 
@@ -174,7 +195,7 @@ namespace cslib {
 
   template <typename T>
   requires std::is_integral_v<T>
-  std::vector<T> range(const T& start, const T& end) {
+  std::vector<T> range(const T& _start, const T& _end) {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (inclusive)
@@ -199,7 +220,7 @@ namespace cslib {
 
 
   // Retry function
-  auto retry(const auto& func, size_t maxAttempts, size_t waitTimeMs) {
+  auto retry(const auto& _func, size_t _maxAttempts, size_t _waitTimeMs) {
     /*
       Retry a function up to `retries` times with a delay
       of `delay` milliseconds between each retry.
@@ -209,15 +230,15 @@ namespace cslib {
         };
         cslib::retry(func, 3);
     */
-    while (maxAttempts-- > 0) {
+    while (_maxAttempts-- > 0) {
       try {
-        static_assert(std::is_invocable_v<decltype(func)>, "Function must be invocable");
-        return func();
+        static_assert(std::is_invocable_v<decltype(_func)>, "Function must be invocable");
+        return _func();
       }
       catch (const std::runtime_error& e) {
-        if (maxAttempts == 0)
+        if (_maxAttempts == 0)
           throw_up("Function failed after maximum attempts: ", e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(waitTimeMs)); // Wait before retrying
+        std::this_thread::sleep_for(std::chrono::milliseconds(_waitTimeMs)); // Wait before retrying
       }
     }
     throw_up("Function failed after maximum attempts");
@@ -225,7 +246,7 @@ namespace cslib {
 
 
 
-  std::vector<strv_t> parse_cli_args(int argc, const char *const argv[]) {
+  std::vector<strv_t> parse_cli_args(int _argc, const char *const _argv[]) {
     /*
       Parse command line arguments and return them as a
       vector of strings.
@@ -233,124 +254,84 @@ namespace cslib {
         The first argument is the program name, so we skip it
     */
     std::vector<strv_t> args;
-    if (argc <= 1) // -1 for the program name
+    if (_argc <= 1) // -1 for the program name
       return args; // No arguments provided
-    for (int i : range(1, argc))
-      args.emplace_back(argv[i]);
+    for (int i : range(1, _argc))
+      args.emplace_back(_argv[i]);
     return args;
   }
 
 
 
   FIXED wstrv_t TRIM_WITH = L"...";
-  MACRO shorten_end(wstrv_t wstrsv, size_t maxLength) {
+  MACRO shorten_end(wstrv_t _wstrsv, size_t _maxLength) {
     /*
       Example:
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
-    if (maxLength < TRIM_WITH.length())
+    if (_maxLength < TRIM_WITH.length())
       throw_up("maxLength must be at least ", TRIM_WITH.length(), " (TRIM_WITH length)");
-    if (wstrsv.length() <= maxLength)
-      return wstr_t(wstrsv);
-    return wstr_t(wstrsv.substr(0, maxLength - TRIM_WITH.length())) + TRIM_WITH.data();
+    if (_wstrsv.length() <= _maxLength)
+      return wstr_t(_wstrsv);
+    return wstr_t(_wstrsv.substr(0, _maxLength - TRIM_WITH.length())) + TRIM_WITH.data();
   }
 
-  MACRO shorten_begin(wstrv_t wstrsv, size_t maxLength) {
+  MACRO shorten_begin(wstrv_t _wstrsv, size_t _maxLength) {
     /*
       Example:
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
-    if (maxLength < TRIM_WITH.length())
+    if (_maxLength < TRIM_WITH.length())
       throw_up("maxLength must be at least ", TRIM_WITH.length(), " (TRIM_WITH length)");
-    if (wstrsv.length() <= maxLength)
-      return wstr_t(wstrsv);
-    return wstr_t(TRIM_WITH) + wstr_t(wstrsv.substr(wstrsv.length() - (maxLength - TRIM_WITH.length())));
+    if (_wstrsv.length() <= _maxLength)
+      return wstr_t(_wstrsv);
+    return wstr_t(TRIM_WITH) + wstr_t(_wstrsv.substr(_wstrsv.length() - (_maxLength - TRIM_WITH.length())));
   }
 
 
 
-  MACRO upper(wstrv_t wstrsv) {
+  std::vector<wstr_t> separate(wstrv_t _wstrsv, wchar_t _delimiter) {
     /*
       Example:
-        cslib::upper(L"csLib.h++"); // "CSLIB.H++"
+        cslib::separate(L"John Money", ' ') // {"John", "Money"}
     */
-    wstr_t str(wstrsv);
-    std::transform(str.begin(), str.end(), str.begin(), ::toupper);
-    return str;
-  }
-  MACRO upper_ref(wstr_t& wstr) {
-    std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::toupper);
-  }
-
-  MACRO lower(wstrv_t wstrsv) {
-    /*
-      Example:
-        cslib::lower(L"csLib.h++"); // "cslib.h++"
-    */
-    wstr_t str(wstrsv);
-    std::transform(str.begin(), str.end(), str.begin(), ::tolower);
-    return str;
-  }
-  MACRO lower_ref(wstr_t& wstr) {
-    std::transform(wstr.begin(), wstr.end(), wstr.begin(), ::tolower);
-  }
-
-
-
-  std::vector<wstr_t> separate(wstrv_t wstrsv, wchar_t delimiter) {
-    /*
-      Example:
-        cslib::separate(L"Hello World", ' ') // {"Hello", "World"}
-    */
-    wstr_t str(wstrsv);
+    wstr_t str(_wstrsv);
     std::vector<wstr_t> result;
     wstr_t temp;
-
-    if (str.empty() or delimiter == L'\0')
+    if (str.empty() or _delimiter == L'\0')
       return result;
-
     for (wchar_t c : str) {
-      if (c == delimiter)
+      if (c == _delimiter)
         result.push_back(std::move(temp));
       else
         temp += c;
     }
-
     result.push_back(temp);
     return result;
   }
 
 
 
-  size_t roll_dice(size_t min, size_t max) {
+  size_t roll_dice(size_t _min, size_t _max) {
     /*
       Minimum and maximum value and returns a random
       number between them (inclusive).
     */
-    if (min > max) std::swap(min, max);
+    if (_min > _max) std::swap(_min, _max);
 
     static thread_local std::mt19937 generator(std::random_device{}());
-    std::uniform_int_distribution<size_t> distribution(min, max);
+    std::uniform_int_distribution<size_t> distribution(_min, _max);
     return distribution(generator);
   }
 
 
 
-  wstr_t do_io(std::wistream& winStream) {
-    wstr_t input;
-    std::getline(winStream, input);
-    return input;
+  wstr_t do_io(std::wistream& _winStream) {
+    return std::wstring(std::istreambuf_iterator<wchar_t>(_winStream),
+                        std::istreambuf_iterator<wchar_t>());
   }
-  void do_io(std::wistream& winStream, std::wostream& woutStream) {
-    woutStream << do_io(winStream) << std::flush;
-  }
-  str_t do_io(std::istream& inStream) {
-    str_t input;
-    std::getline(inStream, input);
-    return input;
-  }
-  void do_io(std::istream& inStream, std::ostream& outStream) {
-    outStream << do_io(inStream) << std::flush;
+  void do_io(std::wistream& _winStream, std::wostream& _woutStream) {
+    _woutStream << do_io(_winStream) << std::flush;
   }
 
 
@@ -428,12 +409,12 @@ namespace cslib {
         prefix += Reset;
       prefix += L" ";
     }
-    std::wostream& operator<<(const auto& msg) {
-      std::wcout << prefix << msg;
+    std::wostream& operator<<(const auto& _msg) {
+      std::wcout << prefix << _msg;
       return std::wcout;
     }
-    std::wostream& operator<<(auto&& msg) {
-      std::wcout << prefix << std::forward<decltype(msg)>(msg);
+    std::wostream& operator<<(auto&& _msg) {
+      std::wcout << prefix << std::forward<decltype(_msg)>(_msg);
       return std::wcout;
     }
   };
@@ -449,27 +430,27 @@ namespace cslib {
 
     // Contructors and error handling
     TimeStamp() {timePoint = std::chrono::system_clock::now();}
-    TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
-    TimeStamp(uint sec, uint min, uint hour, uint day, uint month, uint year) {
+    TimeStamp(std::chrono::system_clock::time_point _tp) : timePoint(_tp) {}
+    TimeStamp(uint _sec, uint _min, uint _hour, uint _day, uint _month, uint _year) {
       /*
         Create a time stamp from the given date and time
         after making sure that the date is valid.
       */
       // Determine date
       std::chrono::year_month_day ymd{
-        std::chrono::year(year),
-        std::chrono::month(month),
-        std::chrono::day(day)
+        std::chrono::year(_year),
+        std::chrono::month(_month),
+        std::chrono::day(_day)
       };
       if (!ymd.ok())
-        throw_up("Invalid date: ", year, "-", month, "-", day);
+        throw_up("Invalid date: ", _year, "-", _month, "-", _day);
       // Determine time
-      if (hour >= 24 or min >= 60 or sec >= 60)
-        throw_up("Invalid time: ", hour, ":", min, ":", sec);
+      if (_hour >= 24 or _min >= 60 or _sec >= 60)
+        throw_up("Invalid time: ", _hour, ":", _min, ":", _sec);
       std::chrono::hh_mm_ss hms{
-        std::chrono::hours(hour) +
-        std::chrono::minutes(min) +
-        std::chrono::seconds(sec)
+        std::chrono::hours(_hour) +
+        std::chrono::minutes(_min) +
+        std::chrono::seconds(_sec)
       };
       // Combine date and time into a time point
       timePoint = std::chrono::system_clock::time_point(
@@ -591,14 +572,14 @@ namespace cslib {
       return std::distance(isAt.begin(), isAt.end()) - 1; // -1 for the file itself
     }
 
-    bool operator==(const VirtualPath& other) const { return this->isAt == other.isAt; }
-    bool operator!=(const VirtualPath& other) const { return !(*this == other); }
-    bool operator==(wstrv_t other) const { return this->isAt == std::filesystem::path(other); }
-    bool operator!=(wstrv_t other) const { return !(*this == other); }
-    bool operator==(strv_t other) const { return this->isAt == std::filesystem::path(other);}
-    bool operator!=(strv_t other) const { return !(*this == other); }
-    bool operator==(const std::filesystem::path& other) const { return this->isAt == other; }
-    bool operator!=(const std::filesystem::path& other) const { return !(*this == other); }
+    bool operator==(const VirtualPath& _other) const { return this->isAt == _other.isAt; }
+    bool operator!=(const VirtualPath& _other) const { return !(*this == _other); }
+    bool operator==(wstrv_t _other) const { return this->isAt == std::filesystem::path(_other); }
+    bool operator!=(wstrv_t _other) const { return !(*this == _other); }
+    bool operator==(strv_t _other) const { return this->isAt == std::filesystem::path(_other);}
+    bool operator!=(strv_t _other) const { return !(*this == _other); }
+    bool operator==(const std::filesystem::path& _other) const { return this->isAt == _other; }
+    bool operator!=(const std::filesystem::path& _other) const { return !(*this == _other); }
 
 
     // Transform into stl
@@ -611,42 +592,42 @@ namespace cslib {
 
     // Constructors
     VirtualPath() = default;
-    VirtualPath(wstrv_t where) : isAt(std::filesystem::canonical(where.data())) {}
+    VirtualPath(wstrv_t _where) : isAt(std::filesystem::canonical(_where.data())) {}
     /*
       Constructor that takes a string and checks if it's a valid path.
       Notes:
         - If where is relative, it will be converted to an absolute path.
         - If where is empty, you will crash.
     */
-    VirtualPath(wstrv_t where, std::filesystem::file_type shouldBe) : VirtualPath(where) {
-      if (this->type() != shouldBe)
-        throw_up("Path '", where, "' initialized with unexpected file type");
+    VirtualPath(wstrv_t _where, std::filesystem::file_type _shouldBe) : VirtualPath(_where) {
+      if (this->type() != _shouldBe)
+        throw_up("Path '", _where, "' initialized with unexpected file type");
     }
 
 
     // Complicated methods
-    void move_to(const VirtualPath& moveTo) {
-      if (moveTo.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
-      if (moveTo == *this)
+    void move_to(const VirtualPath& _moveTo) {
+      if (_moveTo.type() != std::filesystem::file_type::directory)
+        throw_up("Target path '", _moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+      if (_moveTo == *this)
         throw_up("Cannot move to the same path: ", this->isAt.wstring());
-      std::filesystem::path willBecome = moveTo.isAt / this->isAt.filename();
+      std::filesystem::path willBecome = _moveTo.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
         throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
       std::filesystem::rename(this->isAt, willBecome);
       this->isAt = VirtualPath(willBecome.wstring()).isAt; // Apply changes
     }
 
-    VirtualPath copy_into(const VirtualPath& targetDict) const {
+    VirtualPath copy_into(const VirtualPath& _targetDict) const {
       /*
         Copies this instance to a new location and returns
         a new VirtualPath instance pointing to the copied file.
       */
-      if (targetDict.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
-      if (targetDict == *this)
+      if (_targetDict.type() != std::filesystem::file_type::directory)
+        throw_up("Target path '", _targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+      if (_targetDict == *this)
         throw_up("Cannot copy to the same path: ", this->isAt.wstring());
-      std::filesystem::path willBecome = targetDict.isAt / this->isAt.filename();
+      std::filesystem::path willBecome = _targetDict.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
         throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
       std::filesystem::copy(this->isAt, willBecome);
@@ -662,20 +643,20 @@ namespace cslib {
       Example:
         File file("/gitstuff/cslib/cslib.h++");
         str_t content = file.content();
-        // content = "Hello World"
+        // content = "Around 50 years ago, a group of people..."
     */
     VirtualPath is; // Composition over inheritance
 
     File() = default;
-    File(wstrv_t where) : is(where, std::filesystem::file_type::regular) {}
+    File(wstrv_t _where) : is(_where, std::filesystem::file_type::regular) {}
 
-    wstr_t content(std::ios_base::openmode openMode = std::ios::in) const {
+    wstr_t content(std::ios_base::openmode _openMode = std::ios::in) const {
       /*
         Read the content of the file and return it as a string.
         Note:
           - No error-handling for files larger than available memory
       */
-      std::wifstream file(is.isAt, openMode);
+      std::wifstream file(is.isAt, _openMode);
       if (!file.is_open())
         throw_up("Failed to open file '", is.isAt.wstring(), '\'');
       if (!file.good())
@@ -706,12 +687,12 @@ namespace cslib {
     }
 
     Folder() = default;
-    Folder(wstrv_t where) : is(where, std::filesystem::file_type::directory) {update();}
+    Folder(wstrv_t _where) : is(_where, std::filesystem::file_type::directory) {update();}
     wstr_t wstr() const {
       return is.isAt.wstring();
     }
 
-    bool has(const VirtualPath& item) const {
+    bool has(const VirtualPath& _item) const {
       /*
         Check if the folder contains the given item.
         Example:
@@ -720,15 +701,15 @@ namespace cslib {
           bool exists = folder.has(item);
           // exists = true
       */
-      return contains(content, item);
+      return contains(content, _item);
     }
-    bool has(const File& item) const {
+    bool has(const File& _item) const {
       Folder shouldBe(this->wstr());
-      return contains(shouldBe.content, item.is);
+      return contains(shouldBe.content, _item.is);
     }
-    bool has(const Folder& item) const {
+    bool has(const Folder& _item) const {
       Folder shouldBe(this->wstr());
-      return contains(shouldBe.content, item.is);
+      return contains(shouldBe.content, _item.is);
     }
   };
 

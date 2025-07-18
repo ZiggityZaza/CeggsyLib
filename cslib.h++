@@ -199,20 +199,31 @@ namespace cslib {
 
 
   // Retry function
-  template <std::invocable F, typename... Args>
-  void retry(F&& func, size_t maxAttempts, Args&&... args) {
+  auto retry(const auto& func, size_t maxAttempts, size_t waitTimeMs) {
+    /*
+      Retry a function up to `retries` times with a delay
+      of `delay` milliseconds between each retry.
+      Example:
+        std::function<void()> func = []() {
+          // Do something that might fail
+        };
+        cslib::retry(func, 3);
+    */
     while (maxAttempts-- > 0) {
       try {
-        func(std::forward<Args>(args)...);
-        return; // Success, exit the loop
+        static_assert(std::is_invocable_v<decltype(func)>, "Function must be invocable");
+        return func();
       }
       catch (const std::runtime_error& e) {
         if (maxAttempts == 0)
           throw_up("Function failed after maximum attempts: ", e.what());
-        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Wait before retrying
+        std::this_thread::sleep_for(std::chrono::milliseconds(waitTimeMs)); // Wait before retrying
       }
     }
+    throw_up("Function failed after maximum attempts");
   }
+
+
 
   std::vector<strv_t> parse_cli_args(int argc, const char *const argv[]) {
     /*
@@ -771,7 +782,7 @@ namespace cslib {
     TempFile() {
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
       wstr_t randomName;
-      for (auto _ : range(TEMP_FILE_NAME_LEN))
+      for ([[maybe_unused]] auto _ : range(TEMP_FILE_NAME_LEN))
         switch (roll_dice(0, 2)) {
           case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
           case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter

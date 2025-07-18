@@ -2,6 +2,8 @@
 using namespace cslib;
 #include <cassert>
 
+
+
 void log(bool conditionResult, std::string_view conditionExplained) {
   if (!isWcharIOEnabled)
     enable_wchar_io();
@@ -83,7 +85,12 @@ int main() {
     pause(1000); // Pause for 1 second
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    log(duration > 999 && duration < 1001, "pause for 1000ms should take around 1000ms"); // Margin of 1ms
+    log(duration > 999 && duration < 1001, "pause for 1000ms should take around 1000ms (took " + std::to_string(duration) + "ms)");
+    start = std::chrono::high_resolution_clock::now();
+    pause(0); // Should not throw
+    end = std::chrono::high_resolution_clock::now();
+    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
+    log(duration < 1, "pause(0) should take less than 1 microsecond");
   }
 
 
@@ -221,9 +228,9 @@ int main() {
     std::vector<int> r1 = range(5);
     log(r1 == std::vector<int>({0, 1, 2, 3, 4}), "range(5) should return [0, 1, 2, 3, 4]");
     std::vector<int> r2 = range(2, 5);
-    log(r2 == std::vector<int>({2, 3, 4, 5}), "range(2, 5) should return [2, 3, 4, 5]");
+    log(r2 == std::vector<int>({2, 3, 4}), "range(2, 5) should return [2, 3, 4]");
     std::vector<int> r3 = range(5, 2);
-    log(r3 == std::vector<int>({5, 4, 3, 2}), "range(5, 2) should return [5, 4, 3, 2]");
+    log(r3 == std::vector<int>({5, 4, 3}), "range(5, 2) should return [5, 4, 3]");
     std::vector<int> r4 = range(-3);
     log(r4 == std::vector<int>({0, -1, -2}), "range(-3) should return [0, -1, -2]");
     std::vector<int> r5 = range(-5, -2);
@@ -235,23 +242,107 @@ int main() {
 
 
   { log(true, "Testing cslib::retry");
-    auto func = []() {
-      static int count = 0;
-      if (count < 2) {
-        ++count;
-        throw std::runtime_error("c-function test error");
-      }
-      return 42; // Success after 2 retries
-    };
+    auto start = std::chrono::high_resolution_clock::now();
+    auto end = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
     std::function<int()> stdFunc = []() {
-      static int count = 0;
-      if (count < 2) {
-        ++count;
-        throw std::runtime_error("std::function Test error");
-      }
-      return 42; // Success after 2 retries
+      static int attempts = 0;
+      if (++attempts < 3)
+        throw std::runtime_error("Test error from std::function");
+      return 42;
     };
-    retry(func, 3, 100);
-    retry(stdFunc, 3, 100);
+    int (*cPtrFunc)() = []() -> int {
+      static int attempts = 0;
+      if (++attempts < 3)
+        throw std::runtime_error("Test error from C function pointer");
+      return 42; // Success on the third attempt
+    };
+    auto lambdaFunc = []() -> int {
+      static int attempts = 0;
+      if (++attempts < 3)
+        throw std::runtime_error("Test error from lambda function");
+      return 42; // Success on the third attempt
+    };
+    try {
+      start = std::chrono::high_resolution_clock::now();
+      int result = retry(stdFunc, 3, 100);
+      end = std::chrono::high_resolution_clock::now();
+      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(std::function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+
+      start = std::chrono::high_resolution_clock::now();
+      result = retry(cPtrFunc, 3, 100);
+      end = std::chrono::high_resolution_clock::now();
+      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(c-style function pointer) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+      
+      start = std::chrono::high_resolution_clock::now();
+      result = retry(lambdaFunc, 3, 100);
+      end = std::chrono::high_resolution_clock::now();
+      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(lambda function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+
+      start = std::chrono::high_resolution_clock::now();
+      result = retry([]() -> int {
+        static int attempts = 0;
+        if (++attempts < 3)
+          throw std::runtime_error("Test error from inline lambda function");
+        return 42; // Success on the third attempt
+      }, 3, 100);
+      end = std::chrono::high_resolution_clock::now();
+      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(inline lambda function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+    } catch (const std::runtime_error &e) {
+      log(false, "retry should not throw an error for successful function");
+    }
+    try {
+      retry([]() -> int {
+        throw std::runtime_error("This function always fails");
+      }, 3, 100);
+      log(false, "retry should throw an error for function that always fails");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Function failed after maximum attempts") != std::string::npos, "retry should throw an error for function that always fails");
+    }
   }
+
+
+
+  { log(true, "Testing cslib::parse_cli_args");
+    const char *args[] = {"program", "arg1", "arg2", "arg3"};
+    std::vector<strv_t> parsedArgs = parse_cli_args(4, args);
+    log(parsedArgs.size() == 3, "parse_cli_args should return 3 arguments");
+    log(parsedArgs[0] == "arg1", "First argument should be 'arg1'");
+    log(parsedArgs[1] == "arg2", "Second argument should be 'arg2'");
+    log(parsedArgs[2] == "arg3", "Third argument should be 'arg3'");
+  }
+
+
+
+  { log(true, "Testing cslib::shorten_end/begin"); // No narrow string support
+    std::wstring str = L"This is a pretty long string";
+    log(shorten_end(str, 10) == L"This is...", "shorten_end with length 10");
+    log(shorten_begin(str, 10) == L"... string", "shorten_begin with length 10");
+    log(shorten_end(str, 100) == str, "shorten_end with length greater than string length should return original string");
+    log(shorten_begin(str, 100) == str, "shorten_begin with length greater than string length should return original string");
+    try {
+      shorten_end(str, 2);
+      log(false, "shorten_end should throw an error for maxLength less than TRIM_WITH length");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("maxLength must be at least 3 (TRIM_WITH length)") != std::string::npos, "shorten_end should throw an error for maxLength less than TRIM_WITH length");
+    }
+    try {
+      shorten_begin(str, 2);
+      log(false, "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("maxLength must be at least 3 (TRIM_WITH length)") != std::string::npos, "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
+    }
+    static_assert(shorten_end(L"This is a pretty long string", 10) == L"This is...", "shorten_end constexpr with length 10");
+    static_assert(shorten_begin(L"This is a pretty long string", 10) == L"... string", "shorten_begin constexpr with length 10");
+    static_assert(shorten_end(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_end constexpr with length greater than string length should return original string");
+    static_assert(shorten_begin(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_begin constexpr with length greater than string length should return original string");
+  }
+
+
+
+  
 }

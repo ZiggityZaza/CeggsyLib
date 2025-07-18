@@ -13,6 +13,7 @@
 #include <algorithm>
 #include <iostream> // Already contains many libraries
 #include <optional>
+#include <utility>
 #include <fstream>
 #include <sstream>
 #include <variant>
@@ -141,15 +142,13 @@ namespace cslib {
 
 
 
-  template <typename Key, typename Container>
-  bool contains(Container& lookIn, Key& lookFor) {
+  MACRO contains(const auto& lookIn, const auto& lookFor) {
     /*
       does `container` contain `key`
     */
     return std::find(lookIn.begin(), lookIn.end(), lookFor) != lookIn.end();
   }
-  template <typename Containers>
-  bool have_something_common(Containers& c1, Containers& c2) {
+  MACRO have_something_common(const auto& c1, const auto& c2) {
     /*
       do `c1` and `c2` contain similar keys
     */
@@ -175,17 +174,17 @@ namespace cslib {
 
   template <typename T>
   requires std::is_integral_v<T>
-  std::vector<T> range(T start, T end) {
+  std::vector<T> range(const T& start, const T& end) {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (inclusive)
     */
     std::vector<T> result;
     if (start > end) // reverse
-      for (T i = start; i >= end; --i)
+      for (T i = start; i > end; --i)
         result.push_back(i);
     else if (start < end) // start to end
-      for (T i = start; i <= end; ++i)
+      for (T i = start; i < end; ++i)
         result.push_back(i);
     else // just start
       result.push_back(start);
@@ -193,46 +192,27 @@ namespace cslib {
   }
   template <typename T>
   requires std::is_integral_v<T>
-  std::vector<T> range(T end) {
+  std::vector<T> range(const T& end) {
     return range(T(0), end);
   }
 
 
 
-  template <typename T>
-  T retry(const std::function<T()>& target, size_t retries, size_t delay = 0) {
-    /*
-      Retry a function up to `retries` times with a delay
-      of `delay` milliseconds between each retry.
-      Note:
-        No lambda support
-      Example:
-        std::function<void()> func = []() {
-          // Do something that might fail
-        };
-        cslib::retry(func, 3);
-    */
-    if (retries == 0)
-      throw_up("Retries must be greater than 0");
-    for (size_t tried : range(retries)) {
+  // Retry function
+  template <std::invocable F, typename... Args>
+  void retry(F&& func, size_t maxAttempts, Args&&... args) {
+    while (maxAttempts-- > 0) {
       try {
-        return target();
-      } catch (const std::exception& e) {
-        if (tried == retries - 1) {
-          throw_up("Function ", to_str(&target), " failed after ", retries, " retries: ", e.what());
-        }
-      } catch (...) {
-        // Catch all other exceptions
-        if (tried == retries - 1) {
-          throw_up("Function ", to_str(&target), " failed after ", retries, " retries: Unknown exception");
-        }
+        func(std::forward<Args>(args)...);
+        return; // Success, exit the loop
       }
-      std::this_thread::sleep_for(std::chrono::milliseconds(delay));
+      catch (const std::runtime_error& e) {
+        if (maxAttempts == 0)
+          throw_up("Function failed after maximum attempts: ", e.what());
+        std::this_thread::sleep_for(std::chrono::milliseconds(100)); // Wait before retrying
+      }
     }
-    return T(); // This line is unreachable but keeps compiler happy
   }
-
-
 
   std::vector<strv_t> parse_cli_args(int argc, const char *const argv[]) {
     /*
@@ -244,7 +224,7 @@ namespace cslib {
     std::vector<strv_t> args;
     if (argc <= 1) // -1 for the program name
       return args; // No arguments provided
-    for (int i : range(1, argc - 1))
+    for (int i : range(1, argc))
       args.emplace_back(argv[i]);
     return args;
   }
@@ -791,7 +771,7 @@ namespace cslib {
     TempFile() {
       Folder tempDir(std::filesystem::temp_directory_path().wstring());
       wstr_t randomName;
-      for (size_t i : range(TEMP_FILE_NAME_LEN))
+      for (auto _ : range(TEMP_FILE_NAME_LEN))
         switch (roll_dice(0, 2)) {
           case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
           case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter

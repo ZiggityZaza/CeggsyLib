@@ -10,7 +10,10 @@
                 "${file}",
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
-                "-std=c++23"
+                "-std=c++23",
+                "-Wall",
+                "-Wextra",
+                "-Wpedantic",
             ],
             "options": {
                 "cwd": "${fileDirname}"

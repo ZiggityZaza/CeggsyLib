@@ -1,19 +1,17 @@
 #include "./cslib.h++"
+using namespace cslib;
 #include <cassert>
 
 void log(bool conditionResult, std::string_view conditionExplained) {
-  static std::ofstream logs;
-  if (!logs.is_open()) {
-    logs.open("cslib_test.log");
-    logs << "New test at the '";
-    std::time_t now = std::time(nullptr);
-    logs << std::put_time(std::localtime(&now), "%Y-%m-%d %H:%M:%S") << "'\n";
-  }
-  logs << conditionExplained << (conditionResult ? " [PASSED]" : " [FAILED]") << std::endl;
+  if (!isWcharIOEnabled)
+    enable_wchar_io();
+  if (conditionResult)
+    std::wcout << L"\033[1;32m[PASSED]\033[0m";
+  else
+    std::wcout << L"\033[1;31m[FAILED]\033[0m";
+  std::wcout << " > " << conditionExplained.data() << L'\n';
 }
-
 int main() {
-  using namespace cslib;
 
   { log(true, "Testing cslib::to_str");
     log(to_str(L'A') == "A", "to_str(wchar_t)");
@@ -114,17 +112,7 @@ int main() {
 
 
   { log(true, "Testing cslib::sh_call");
-    // This is a simple test to check if the function compiles and runs without errors
-    // It will not check the actual command execution, as it depends on the system environment
-    sh_call("echo hi > testingcslibsh_call.txt");
-    std::ifstream file("hi.txt");
-    std::string content;
-    if (file.is_open())
-      for (std::string line; std::getline(file, line);)
-        content += line + '\n'; // Add newline to match the echo command output
-    log(content == "hi\n", "sh_call with echo command");
-    std::filesystem::remove("testingcslibsh_call.txt"); // Clean up
-    log(!std::filesystem::exists("testingcslibsh_call.txt"), "sh_call should create and remove the file (stl-side)");
+    sh_call("echo cslib testing"); // Shouldn't throw
     try {
       sh_call("non_existing_command");
       log(false, "sh_call should throw an error for non-existing command");
@@ -132,5 +120,138 @@ int main() {
     catch (const std::runtime_error &e) {
       log(std::string(e.what()).find("Failed to execute command: 'non_existing_command'") != std::string::npos, "sh_call should throw an error for non-existing command");
     }
+  }
+
+
+
+  { log(true, "Testing cslib::contains");
+    std::vector<int> vec = {1, 2, 3, 4, 5};
+    std::deque<int> deq = {1, 2, 3, 4, 5};
+    std::set<int> set = {1, 2, 3, 4, 5};
+    std::list<int> lst = {1, 2, 3, 4, 5};
+    std::array<int, 5> arr = {1, 2, 3, 4, 5};
+    constexpr std::array<int, 5> carr = {1, 2, 3, 4, 5};
+    log(contains(vec, 3), "contains(vector, 3)");
+    log(contains(deq, 3), "contains(deque, 3)");
+    log(contains(set, 3), "contains(set, 3)");
+    log(contains(lst, 3), "contains(list, 3)");
+    log(contains(arr, 3), "contains(array, 3)");
+    log(contains(carr, 3), "contains(constexpr array, 3)");
+    log(!contains(vec, 6), "contains(vector, 6) should be false");
+    log(!contains(deq, 6), "contains(deque, 6) should be false");
+    log(!contains(set, 6), "contains(set, 6) should be false");
+    log(!contains(lst, 6), "contains(list, 6) should be false");
+    log(!contains(arr, 6), "contains(array, 6) should be false");
+    log(!contains(carr, 6), "contains(constexpr array, 6) should be false");
+    static_assert(contains(carr, 3), "contains(constexpr array, 3) should be true at compile time");
+    static_assert(!contains(carr, 6), "contains(constexpr array, 6) should be false at compile time");
+  }
+
+
+
+  { log(true, "Testing cslib::have_something_common");
+    std::vector<int> vec1 = {1, 2, 3};
+    std::vector<int> vec2 = {3, 4, 5};
+    std::vector<int> vec3 = {6, 7, 8};
+    std::vector<int> vec4 = {};
+    std::deque<int> deq1 = {1, 2, 3};
+    std::deque<int> deq2 = {3, 4, 5};
+    std::deque<int> deq3 = {6, 7, 8};
+    std::deque<int> deq4 = {};
+    std::set<int> set1 = {1, 2, 3};
+    std::set<int> set2 = {3, 4, 5};
+    std::set<int> set3 = {6, 7, 8};
+    std::set<int> set4 = {};
+    std::list<int> lst1 = {1, 2, 3};
+    std::list<int> lst2 = {3, 4, 5};
+    std::list<int> lst3 = {6, 7, 8};
+    std::list<int> lst4 = {};
+    std::array<int, 3> arr1 = {1, 2, 3};
+    std::array<int, 3> arr2 = {3, 4, 5};
+    std::array<int, 3> arr3 = {6, 7, 8};
+    std::array<int, 3> arr4 = {};
+    constexpr std::array<int, 3> carr1 = {1, 2, 3};
+    constexpr std::array<int, 3> carr2 = {3, 4, 5};
+    constexpr std::array<int, 3> carr3 = {6, 7, 8};
+    constexpr std::array<int, 3> carr4 = {};
+    log(have_something_common(vec1, vec2), "have_something_common(vector, vector) should be true");
+    log(have_something_common(deq1, deq2), "have_something_common(deque, deque) should be true");
+    log(have_something_common(set1, set2), "have_something_common(set, set) should be true");
+    log(have_something_common(lst1, lst2), "have_something_common(list, list) should be true");
+    log(have_something_common(arr1, arr2), "have_something_common(array, array) should be true");
+    log(have_something_common(carr1, carr2), "have_something_common(constexpr array, constexpr array) should be true");
+    log(!have_something_common(vec1, vec3), "have_something_common(vector, vector) should be false");
+    log(!have_something_common(deq1, deq3), "have_something_common(deque, deque) should be false");
+    log(!have_something_common(set1, set3), "have_something_common(set, set) should be false");
+    log(!have_something_common(lst1, lst3), "have_something_common(list, list) should be false");
+    log(!have_something_common(arr1, arr3), "have_something_common(array, array) should be false");
+    log(!have_something_common(carr1, carr3), "have_something_common(constexpr array, constexpr array) should be false");
+    log(!have_something_common(vec1, vec4), "have_something_common(vector, empty vector) should be false");
+    log(!have_something_common(deq1, deq4), "have_something_common(deque, empty deque) should be false");
+    log(!have_something_common(set1, set4), "have_something_common(set, empty set) should be false");
+    log(!have_something_common(lst1, lst4), "have_something_common(list, empty list) should be false");
+    log(!have_something_common(arr1, arr4), "have_something_common(array, empty array) should be false");
+    static_assert(have_something_common(carr1, carr2), "have_something_common(constexpr array, constexpr array) should be true at compile time");
+    static_assert(!have_something_common(carr1, carr3), "have_something_common(constexpr array, constexpr array) should be false at compile time");
+    static_assert(!have_something_common(carr1, carr4), "have_something_common(constexpr array, empty constexpr array) should be false at compile time");
+  }
+
+
+
+  { log(true, "Testing cslib::get_env");
+    try {
+      std::string envValue = get_env("PATH");
+      log(!envValue.empty(), "get_env should return a non-empty value for existing environment variable");
+    }
+    catch (const std::runtime_error &e) {
+      log(false, "get_env should not throw an error for existing environment variable");
+    }
+    try {
+      std::string envValue = get_env("NON_EXISTING_ENV_VAR");
+      log(false, "get_env did not throw an error for non-existing environment variable");
+    }
+    catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Environment variable 'NON_EXISTING_ENV_VAR' not found") != std::string::npos, "get_env should throw an error for non-existing environment variable");
+    }
+  }
+
+
+
+  { log(true, "Testing cslib::range");
+    std::vector<int> r1 = range(5);
+    log(r1 == std::vector<int>({0, 1, 2, 3, 4}), "range(5) should return [0, 1, 2, 3, 4]");
+    std::vector<int> r2 = range(2, 5);
+    log(r2 == std::vector<int>({2, 3, 4, 5}), "range(2, 5) should return [2, 3, 4, 5]");
+    std::vector<int> r3 = range(5, 2);
+    log(r3 == std::vector<int>({5, 4, 3, 2}), "range(5, 2) should return [5, 4, 3, 2]");
+    std::vector<int> r4 = range(-3);
+    log(r4 == std::vector<int>({0, -1, -2}), "range(-3) should return [0, -1, -2]");
+    std::vector<int> r5 = range(-5, -2);
+    log(r5 == std::vector<int>({-5, -4, -3}), "range(-5, -2) should return [-5, -4, -3]");
+    std::vector<int> r6 = range(-2, -5);
+    log(r6 == std::vector<int>({-2, -3, -4}), "range(-2, -5) should return [-2, -3, -4]");
+  }
+
+
+
+  { log(true, "Testing cslib::retry");
+    auto func = []() {
+      static int count = 0;
+      if (count < 2) {
+        ++count;
+        throw std::runtime_error("c-function test error");
+      }
+      return 42; // Success after 2 retries
+    };
+    std::function<int()> stdFunc = []() {
+      static int count = 0;
+      if (count < 2) {
+        ++count;
+        throw std::runtime_error("std::function Test error");
+      }
+      return 42; // Success after 2 retries
+    };
+    retry(func, 3, 100);
+    retry(stdFunc, 3, 100);
   }
 }

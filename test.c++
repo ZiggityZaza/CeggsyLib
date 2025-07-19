@@ -297,19 +297,19 @@ int main() {
       int result = retry(stdFunc, 3, 100);
       end = std::chrono::high_resolution_clock::now();
       duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(std::function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(std::function) should succeed (took " + std::to_string(duration) + "ms)");
 
       start = std::chrono::high_resolution_clock::now();
       result = retry(cPtrFunc, 3, 100);
       end = std::chrono::high_resolution_clock::now();
       duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(c-style function pointer) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(c-style function pointer) should succeed (took " + std::to_string(duration) + "ms)");
       
       start = std::chrono::high_resolution_clock::now();
       result = retry(lambdaFunc, 3, 100);
       end = std::chrono::high_resolution_clock::now();
       duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(lambda function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(lambda function) should succeed (took " + std::to_string(duration) + "ms)");
 
       start = std::chrono::high_resolution_clock::now();
       result = retry([]() -> int {
@@ -320,7 +320,7 @@ int main() {
       }, 3, 100);
       end = std::chrono::high_resolution_clock::now();
       duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(inline lambda function) should succeed after 2 attempts and take around 200ms (took " + std::to_string(duration) + "ms)");
+      log(result == 42 && duration >= 200 && duration <= 300, "retry(inline lambda function) should succeed (took " + std::to_string(duration) + "ms)");
     } catch (const std::runtime_error &e) {
       log(false, "retry should not throw an error for successful function");
     }
@@ -337,12 +337,21 @@ int main() {
 
 
   { title("Testing cslib::parse_cli_args");
-    const char *args[] = {"program", "arg1", "arg2", "arg3"};
-    std::vector<strv_t> parsedArgs = parse_cli_args(4, args);
-    log(parsedArgs.size() == 3, "parse_cli_args should return 3 arguments");
-    log(parsedArgs[0] == "arg1", "First argument should be 'arg1'");
-    log(parsedArgs[1] == "arg2", "Second argument should be 'arg2'");
-    log(parsedArgs[2] == "arg3", "Third argument should be 'arg3'");
+    const char *args1[] = {"program", "arg1", "arg2", "arg3"};
+    std::vector<strv_t> parsedArgs1 = parse_cli_args(4, args1);
+    log(parsedArgs1.size() == 3, "parse_cli_args should return 3 arguments");
+    log(parsedArgs1.at(0) == "arg1", "First argument should be 'arg1'");
+    log(parsedArgs1.at(1) == "arg2", "Second argument should be 'arg2'");
+    log(parsedArgs1.at(2) == "arg3", "Third argument should be 'arg3'");
+    try {
+      parse_cli_args(0, nullptr);
+      log(false, "parse_cli_args should throw an error for zero arguments");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("No command line arguments provided") != std::string::npos, "parse_cli_args should throw an error for zero arguments");
+    }
+    const char* args2[] = {"program"};
+    std::vector<strv_t> parsedArgs2 = parse_cli_args(1, args2);
+    log(parsedArgs2.empty(), "parse_cli_args should return an empty vector for no arguments");
   }
 
 
@@ -369,5 +378,45 @@ int main() {
     static_assert(shorten_begin(L"This is a pretty long string", 10) == L"... string", "shorten_begin constexpr with length 10");
     static_assert(shorten_end(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_end constexpr with length greater than string length should return original string");
     static_assert(shorten_begin(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_begin constexpr with length greater than string length should return original string");
+  }
+
+
+
+  { title("Testing cslib::separate");
+    std::vector<std::wstring> result = separate(L"John Money", ' ');
+    log(result.size() == 2, "separate should return 2 parts");
+    log(result.at(0) == L"John", "First part should be 'John'");
+    log(result.at(1) == L"Money", "Second part should be 'Money'");
+    result = separate(L"John  Money", ' ');
+    log(result.size() == 3, "separate should return 3 parts for double spaces");
+    log(result.at(0) == L"John", "First part should be 'John'");
+    log(result.at(1) == L"", "Second part should be empty for double space");
+    log(result.at(2) == L"Money", "Third part should be 'Money'");
+    log(separate(L"", ',').empty(), "separate should return empty vector for empty string");
+    log(separate(L"John Money", L'X').at(0) == L"John Money", "separate with non-existing delimiter should return the whole string in a vector");
+  }
+
+
+
+  { title("Testing cslib::roll_dice");
+    int min = -3, max = 3;
+    bool correctRange = true;
+    for ([[maybe_unused]] int64_t _ : range(100'000)) {
+      int result = roll_dice(min, max);
+      if (!(result >= min && result <= max))
+        correctRange = false;
+    }
+    log(correctRange, "roll_dice should return a value between " + std::to_string(min) + " and " + std::to_string(max));
+    log(roll_dice(1, 1) == 1, "roll_dice with same min and max should return that value");
+  }
+
+
+
+  { title("Testing cslib::istream_str");
+    std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
+    std::wofstream(testFilePath) << L"John\nMoney\n";
+    std::wifstream inFile(testFilePath);
+    log(do_io(inFile) == L"John\nMoney\n", "do_io file reading should return file content");
+    std::wcout << L"Output Stream Content: " << do_io(inFile) << L'\n';
   }
 }

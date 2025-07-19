@@ -201,14 +201,14 @@ namespace cslib {
       and returns a vector of integers (inclusive)
     */
     std::vector<T> result;
-    if (start > end) // reverse
-      for (T i = start; i > end; --i)
+    if (_start > _end) // reverse
+      for (T i = _start; i > _end; --i)
         result.push_back(i);
-    else if (start < end) // start to end
-      for (T i = start; i < end; ++i)
+    else if (_start < _end) // start to end
+      for (T i = _start; i < _end; ++i)
         result.push_back(i);
     else // just start
-      result.push_back(start);
+      result.push_back(_start);
     return result;
   }
   template <typename T>
@@ -219,7 +219,6 @@ namespace cslib {
 
 
 
-  // Retry function
   auto retry(const auto& _func, size_t _maxAttempts, size_t _waitTimeMs) {
     /*
       Retry a function up to `retries` times with a delay
@@ -246,18 +245,17 @@ namespace cslib {
 
 
 
-  std::vector<strv_t> parse_cli_args(int _argc, const char *const _argv[]) {
+  std::vector<strv_t> parse_cli_args(int _argc, const char *const _args[]) {
     /*
       Parse command line arguments and return them as a
       vector of strings.
       Note:
         The first argument is the program name, so we skip it
     */
-    std::vector<strv_t> args;
-    if (_argc <= 1) // -1 for the program name
-      return args; // No arguments provided
-    for (int i : range(1, _argc))
-      args.emplace_back(_argv[i]);
+    if (_args == nullptr or _argc <= 0)
+      throw_up("No command line arguments provided");
+    std::vector<strv_t> args(_args, _args + _argc); // Includes binary name
+    args.erase(args.begin()); // Remove the first argument (program name)
     return args;
   }
 
@@ -312,23 +310,30 @@ namespace cslib {
 
 
 
-  size_t roll_dice(size_t _min, size_t _max) {
+  template <typename T>
+  requires std::is_integral_v<T>
+  T roll_dice(T _min, T _max) {
     /*
       Minimum and maximum value and returns a random
       number between them (inclusive).
+      Example:
+        cslib::roll_dice(1, 6); // Returns a random number
+        between 1 and 6 (inclusive)
     */
     if (_min > _max) std::swap(_min, _max);
-
-    static thread_local std::mt19937 generator(std::random_device{}());
-    std::uniform_int_distribution<size_t> distribution(_min, _max);
+    static std::mt19937 generator(std::random_device{}());
+    std::uniform_int_distribution<T> distribution(_min, _max);
     return distribution(generator);
   }
 
 
 
-  wstr_t do_io(std::wistream& _winStream) {
-    return std::wstring(std::istreambuf_iterator<wchar_t>(_winStream),
-                        std::istreambuf_iterator<wchar_t>());
+  wstr_t do_io(std::wistream& _winStream, bool ignoreError = false) { // Unfinished
+    static std::vector<std::wistream*> usedStreams;
+    if (std::find(usedStreams.begin(), usedStreams.end(), &_winStream) != usedStreams.end())
+      throw_up("do_io: Stream already used. Use a new stream or reset the existing one.");
+    usedStreams.push_back(&_winStream);
+    return std::wstring(std::istreambuf_iterator<wchar_t>(_winStream), std::istreambuf_iterator<wchar_t>());
   }
   void do_io(std::wistream& _winStream, std::wostream& _woutStream) {
     _woutStream << do_io(_winStream) << std::flush;

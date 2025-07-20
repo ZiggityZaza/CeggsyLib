@@ -87,10 +87,10 @@ int main() {
 
   { title("Testing/Benchmarking cslib::pause");
     auto start = std::chrono::high_resolution_clock::now();
-    pause(1000); // Pause for 1 second
+    pause(500); // Pause for 0,5 second
     auto end = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    log(duration > 999 && duration < 1001, "pause for 1000ms should take around 1000ms (took " + std::to_string(duration) + "ms)");
+    log(duration > 499 && duration < 501, "pause for 1000ms should take around 500ms (took " + std::to_string(duration) + "ms)");
     start = std::chrono::high_resolution_clock::now();
     pause(0); // Should not throw
     end = std::chrono::high_resolution_clock::now();
@@ -412,11 +412,85 @@ int main() {
 
 
 
-  { title("Testing cslib::istream_str");
+  { title("Testing cslib::read_wdata and cslib::do_io");
     std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
     std::wofstream(testFilePath) << L"John\nMoney\n";
     std::wifstream inFile(testFilePath);
-    log(do_io(inFile) == L"John\nMoney\n", "do_io file reading should return file content");
-    std::wcout << L"Output Stream Content: " << do_io(inFile) << L'\n';
+    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
+    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");;
+    inFile.close();
+    log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
+    std::wifstream inFile2(testFilePath);
+    log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
+    
+    std::filesystem::path testFilePath2 = std::filesystem::temp_directory_path() / "cslib_test_io2.txt";
+    std::wofstream outFile(testFilePath2);
+    outFile << read_wdata(inFile2);
+    outFile.close();
+    std::wifstream inFile3(testFilePath2);
+    log(read_wdata(inFile3) == L"John\nMoney\n", "read_wdata should return expected content after writing to a new file");
+    inFile3.close();
+
+    std::wostringstream woss;
+    do_io(inFile2, woss);
+    log(woss.str() == L"John\nMoney\n", "do_io should read from input stream and write to output stream");
+    inFile2.close();
+  }
+
+
+
+  { title("Skipping wchar support functions/variables tests because they need cli interaction"); }
+
+
+
+  { title("Testing cslib::Out");
+    std::wostringstream woss;
+    Out(woss, L"[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << L'_' << 3.14f << L" wide";
+    log(woss.str() == L"\033[36m[checking cslib::Out] \033[0mnarrow_123_3.14 wide", "cslib::Out with narrow and wide types");
+    woss.str(L""); // Clear the stream
+  }
+
+
+
+  { title("Testing cslib::TimeStamp");
+    TimeStamp ts1;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
+    log(elapsed >= 499 and elapsed <= 501, "TimeStamp should be within 500ms of current time");
+    std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
+    std::tm *tm = std::localtime(&now);
+    log(((std::wostringstream() << std::put_time(tm, L"%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_Wstr()), "TimeStamp should format time correctly");
+    TimeStamp rightNow;
+    log(rightNow.year() == uint(tm->tm_year + 1900), "TimeStamp should return correct year");
+    log(rightNow.month() == uint(tm->tm_mon + 1), "TimeStamp should return correct month");
+    log(rightNow.day() == uint(tm->tm_mday), "TimeStamp should return correct day");
+    log(rightNow.hour() == uint(tm->tm_hour), "TimeStamp should return correct hour");
+    log(rightNow.minute() == uint(tm->tm_min), "TimeStamp should return correct minute");
+    log(rightNow.second() == uint(tm->tm_sec), "TimeStamp should return correct second");
+  }
+
+
+
+  { title("Testing cslib::Benchmark");
+    Benchmark bm;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
+    size_t elapsed = bm.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 501, "Benchmark should measure time correctly (took " + std::to_string(elapsed) + "ms)");
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
+    elapsed = bm.elapsed_ms();
+    log(elapsed >= 998 && elapsed <= 1002, "Benchmark should measure time correctly after another 0.5 seconds (took " + std::to_string(elapsed) + "ms)");
+    bm.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
+    elapsed = bm.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took " + std::to_string(elapsed) + "ms)");
+  }
+
+
+
+  { title("Testing cslib::RouteToFile");
+    std::filesystem::path logFilePath = std::filesystem::temp_directory_path() / "cslib_test_log.txt";
+    std::wofstream(logFilePath) << L"Initial log content";
+    RouteToFile tempFile(logFilePath);
+    log(log)
   }
 }

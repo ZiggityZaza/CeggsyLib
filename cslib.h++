@@ -181,6 +181,23 @@ namespace cslib {
 
 
 
+  MACRO recrusive_lookup(const auto& _lookIn, const auto& _lookFor) {
+    /*
+      Check if `container` contains `key` or if it contains
+      a container that contains `key`
+    */
+    for (const auto& item : _lookIn) {
+      if (item == _lookFor)
+        return true;
+      if constexpr (std::is_same_v<decltype(item), decltype(_lookIn)>)
+        if (recrusive_lookup(item, _lookFor))
+          return true;
+    }
+    return false;
+  }
+
+
+
   str_t get_env(strv_t _var) {
     /*
       Get the value of an environment variable.
@@ -328,15 +345,24 @@ namespace cslib {
 
 
 
-  wstr_t do_io(std::wistream& _winStream, bool ignoreError = false) { // Unfinished
-    static std::vector<std::wistream*> usedStreams;
-    if (std::find(usedStreams.begin(), usedStreams.end(), &_winStream) != usedStreams.end())
-      throw_up("do_io: Stream already used. Use a new stream or reset the existing one.");
-    usedStreams.push_back(&_winStream);
-    return std::wstring(std::istreambuf_iterator<wchar_t>(_winStream), std::istreambuf_iterator<wchar_t>());
+  wstr_t read_wdata(std::wistream& _winStream) {
+    /*
+      Read all data from the given wistream and return it as a wstring.
+      After reading, the stream is considered empty.
+      Throws an error if the stream is not open or in a bad state.
+      Note:
+        Handling encoding, other states, flags or similar are managed
+        by the caller. This function only cleans up its own changes.
+    */
+    if (!_winStream or !_winStream.good())
+      throw_up("std::wistream is not good or in a bad state");
+    const std::wstreampos previousPos = _winStream.tellg();
+    std::wstring result{std::istreambuf_iterator<wchar_t>(_winStream), std::istreambuf_iterator<wchar_t>()};
+    _winStream.seekg(previousPos);
+    return result;
   }
   void do_io(std::wistream& _winStream, std::wostream& _woutStream) {
-    _woutStream << do_io(_winStream) << std::flush;
+    _woutStream << read_wdata(_winStream) << std::flush;
   }
 
 
@@ -405,22 +431,30 @@ namespace cslib {
         cslib::Out error("Error: ", cslib::Out::Color::RED);
         error << "Something went wrong";
     */
+    std::wostream& outTo;
     wstr_t prefix;
     Out() = default;
-    Out(wstrv_t wprefsv = L"", wstrv_t color = L"") {
-      prefix = color;
-      prefix += wprefsv;
-      if (!color.empty())
-        prefix += Reset;
-      prefix += L" ";
+    Out(std::wostream& _outTo) : outTo(_outTo) {
+      if (!isWcharIOEnabled)
+        enable_wchar_io();
+      prefix = L"";
+    }
+    Out(std::wostream& _outTo, wstrv_t _prefsv = L"", wstrv_t _color = L"") : outTo(_outTo) {
+      std::wostringstream prefixStream;
+      prefixStream << _color << _prefsv;
+      if (!_prefsv.empty())
+        prefixStream << " ";
+      if (!_color.empty())
+        prefixStream << Reset;
+      prefix = prefixStream.str();
     }
     std::wostream& operator<<(const auto& _msg) {
-      std::wcout << prefix << _msg;
-      return std::wcout;
+      outTo << prefix << _msg;
+      return outTo;
     }
     std::wostream& operator<<(auto&& _msg) {
-      std::wcout << prefix << std::forward<decltype(_msg)>(_msg);
-      return std::wcout;
+      outTo << prefix << std::forward<decltype(_msg)>(_msg);
+      return outTo;
     }
   };
 
@@ -428,7 +462,7 @@ namespace cslib {
 
   class TimeStamp { public:
     /*
-      A wrapper around std::chrono that I have control over
+      A wrapper around std::chrono
     */
     std::chrono::system_clock::time_point timePoint;
     
@@ -463,41 +497,39 @@ namespace cslib {
       );
     }
 
-
-    // Getters
-    wstr_t asWstr() const {
+    wstr_t as_Wstr() const {
       /*
         Convert the time point to (almost) ISO 8601
-        in format YYYY-MM-DD HH:MM:SS)..
+        in format HH:MM:SS DD-MM-YYYY)..
       */
       std::time_t time = std::chrono::system_clock::to_time_t(timePoint);
-      return (std::wstringstream() << std::put_time(std::gmtime(&time), L"%Y-%m-%d %H:%M:%S")).str();
+      return (std::wstringstream() << std::put_time(std::gmtime(&time), L"%H:%M:%S %d-%m-%Y")).str();
     }
-    uint get_year() const {
+    uint year() const {
       auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
       return uint(int(ymd.year()));
     }
-    uint get_month() const {
+    uint month() const {
       auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
       return uint(ymd.month());
     }
-    uint get_day() const {
+    uint day() const {
       auto ymd = std::chrono::year_month_day(std::chrono::floor<std::chrono::days>(timePoint));
       return uint(ymd.day());
     }
-    uint get_hour() const {
+    uint hour() const {
       auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
       auto time_since_midnight = timePoint - day_point;
       auto hms = std::chrono::hh_mm_ss(time_since_midnight);
       return uint(hms.hours().count());
     }
-    uint get_minute() const {
+    uint minute() const {
       auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
       auto time_since_midnight = timePoint - day_point;
       auto hms = std::chrono::hh_mm_ss(time_since_midnight);
       return uint(hms.minutes().count());
     }
-    uint get_second() const {
+    uint second() const {
       auto day_point = std::chrono::floor<std::chrono::days>(timePoint);
       auto time_since_midnight = timePoint - day_point;
       auto hms = std::chrono::hh_mm_ss(time_since_midnight);
@@ -519,6 +551,9 @@ namespace cslib {
     Benchmark() {
       startTime = std::chrono::high_resolution_clock::now();
     }
+    void reset() {
+      startTime = std::chrono::high_resolution_clock::now();
+    }
     size_t elapsed_ms() {
       return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
     }
@@ -538,9 +573,9 @@ namespace cslib {
   #else
     MACRO PATH_DELIMITER = L'/';
   #endif
-  class VirtualPath { public:
+  class RouteToFile { public:
     /*
-      Wrapper around std::filesystem::path
+      
     */
     std::filesystem::path isAt; // Covers move and copy semantics
 
@@ -555,30 +590,30 @@ namespace cslib {
       return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
 
-    VirtualPath parent() const {
+    RouteToFile parent() const {
       /*
         Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
-          VirtualPath parent = path.parent();
+          RouteToFile path("/gitstuff/cslib/cslib.h++");
+          RouteToFile parent = path.parent();
           // parent = "/gitstuff/cslib"
       */
       if (isAt.parent_path().empty())
-        throw_up("VirtualPath '", to_str(this), "' has somehow no parent");
-      return VirtualPath(isAt.parent_path().wstring(), std::filesystem::file_type::directory);
+        throw_up("RouteToFile '", to_str(this), "' has somehow no parent");
+      return RouteToFile(isAt.parent_path(), std::filesystem::file_type::directory);
     }
 
     size_t depth() const {
       /*
         Example:
-          VirtualPath path("/gitstuff/cslib/cslib.h++");
+          RouteToFile path("/gitstuff/cslib/cslib.h++");
           size_t depth = path.depth();
           // depth = 2 (because there are 2 directories before the file)
       */
       return std::distance(isAt.begin(), isAt.end()) - 1; // -1 for the file itself
     }
 
-    bool operator==(const VirtualPath& _other) const { return this->isAt == _other.isAt; }
-    bool operator!=(const VirtualPath& _other) const { return !(*this == _other); }
+    bool operator==(const RouteToFile& _other) const { return this->isAt == _other.isAt; }
+    bool operator!=(const RouteToFile& _other) const { return !(*this == _other); }
     bool operator==(wstrv_t _other) const { return this->isAt == std::filesystem::path(_other); }
     bool operator!=(wstrv_t _other) const { return !(*this == _other); }
     bool operator==(strv_t _other) const { return this->isAt == std::filesystem::path(_other);}
@@ -596,47 +631,52 @@ namespace cslib {
 
 
     // Constructors
-    VirtualPath() = default;
-    VirtualPath(wstrv_t _where) : isAt(std::filesystem::canonical(_where.data())) {}
+    RouteToFile() = default;
+    RouteToFile(wstrv_t _where) : isAt(std::filesystem::canonical(_where.data())) {}
     /*
       Constructor that takes a string and checks if it's a valid path.
       Notes:
         - If where is relative, it will be converted to an absolute path.
         - If where is empty, you will crash.
     */
-    VirtualPath(wstrv_t _where, std::filesystem::file_type _shouldBe) : VirtualPath(_where) {
+    RouteToFile(wstrv_t _where, std::filesystem::file_type _shouldBe) : RouteToFile(_where) {
       if (this->type() != _shouldBe)
         throw_up("Path '", _where, "' initialized with unexpected file type");
+    }
+    RouteToFile(const std::filesystem::path& _fsp) : isAt(std::filesystem::canonical(_fsp)) {}
+    RouteToFile(const std::filesystem::path& _fsp, std::filesystem::file_type _shouldBe) : RouteToFile(_fsp) {
+      if (this->type() != _shouldBe)
+        throw_up("Path '", _fsp.wstring(), "' initialized with unexpected file type");
     }
 
 
     // Complicated methods
-    void move_to(const VirtualPath& _moveTo) {
+    void move_to(const RouteToFile& _moveTo) {
       if (_moveTo.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", _moveTo.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path ", _moveTo.isAt, " is not a directory (this: ", this->isAt, ')');
       if (_moveTo == *this)
-        throw_up("Cannot move to the same path: ", this->isAt.wstring());
+        throw_up("Cannot move to the same path: ", this->isAt);
       std::filesystem::path willBecome = _moveTo.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
-        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path ", willBecome, " already exists (this: ", this->isAt, ')');
       std::filesystem::rename(this->isAt, willBecome);
-      this->isAt = VirtualPath(willBecome.wstring()).isAt; // Apply changes
+      this->isAt = RouteToFile(willBecome).isAt; // Apply changes
     }
 
-    VirtualPath copy_into(const VirtualPath& _targetDict) const {
+    RouteToFile copy_into(const RouteToFile& _targetDict) const {
       /*
         Copies this instance to a new location and returns
-        a new VirtualPath instance pointing to the copied file.
+        a new RouteToFile instance pointing to the copied file.
       */
       if (_targetDict.type() != std::filesystem::file_type::directory)
-        throw_up("Target path '", _targetDict.isAt.wstring(), "' is not a directory (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path ", _targetDict.isAt, " is not a directory (this: ", this->isAt, ')');
       if (_targetDict == *this)
-        throw_up("Cannot copy to the same path: ", this->isAt.wstring());
+        throw_up("Cannot copy to the same path: ", this->isAt);
       std::filesystem::path willBecome = _targetDict.isAt / this->isAt.filename();
       if (std::filesystem::exists(willBecome))
-        throw_up("Target path '", willBecome.wstring(), "' already exists (this: '", this->isAt.wstring(), "')");
+        throw_up("Target path ", willBecome, " already exists (this: ", this->isAt, ')');
       std::filesystem::copy(this->isAt, willBecome);
-      return VirtualPath(willBecome.wstring(), this->type());
+      return RouteToFile(willBecome, this->type());
     }
   };
 
@@ -644,16 +684,16 @@ namespace cslib {
 
   class File { public:
     /*
-      Child class of VirtualPath that represents a file.
+      Child class of RouteToFile that represents a file.
       Example:
         File file("/gitstuff/cslib/cslib.h++");
         str_t content = file.content();
         // content = "Around 50 years ago, a group of people..."
     */
-    VirtualPath is; // Composition over inheritance
+    RouteToFile is;
 
     File() = default;
-    File(wstrv_t _where) : is(_where, std::filesystem::file_type::regular) {}
+    File(const std::filesystem::path& _where) : is(_where, std::filesystem::file_type::regular) {}
 
     wstr_t content(std::ios_base::openmode _openMode = std::ios::in) const {
       /*
@@ -663,9 +703,9 @@ namespace cslib {
       */
       std::wifstream file(is.isAt, _openMode);
       if (!file.is_open())
-        throw_up("Failed to open file '", is.isAt.wstring(), '\'');
+        throw_up("Failed to open file ", is.isAt);
       if (!file.good())
-        throw_up("Failed to read file '", is.isAt.wstring(), '\'');
+        throw_up("Failed to read file ", is.isAt);
       return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
     }
     wstr_t wstr() const {return is.isAt.wstring();}
@@ -677,44 +717,45 @@ namespace cslib {
 
   class Folder { public:
     /*
-      Child class of VirtualPath that represents a folder and
+      Child class of RouteToFile that represents a folder and
       everything in it.
     */
 
-    std::vector<VirtualPath> content;
-    VirtualPath is;
+    std::vector<RouteToFile> content;
+    RouteToFile is;
 
     void update() {
       content.clear();
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(is.isAt))
-        content.push_back(VirtualPath(entry.path().wstring()));
+        content.push_back(RouteToFile(entry.path()));
       content.shrink_to_fit();
     }
 
     Folder() = default;
-    Folder(wstrv_t _where) : is(_where, std::filesystem::file_type::directory) {update();}
+    Folder(const std::filesystem::path& _where) : is(_where, std::filesystem::file_type::directory) {
+      update();
+    }
+
     wstr_t wstr() const {
       return is.isAt.wstring();
     }
 
-    bool has(const VirtualPath& _item) const {
+    bool has(const RouteToFile& _item) const {
       /*
         Check if the folder contains the given item.
         Example:
           Folder folder("/gitstuff/cslib");
-          VirtualPath item("/gitstuff/cslib/cslib.h++");
+          RouteToFile item("/gitstuff/cslib/cslib.h++");
           bool exists = folder.has(item);
           // exists = true
       */
       return contains(content, _item);
     }
     bool has(const File& _item) const {
-      Folder shouldBe(this->wstr());
-      return contains(shouldBe.content, _item.is);
+      return contains(content, _item.is);
     }
     bool has(const Folder& _item) const {
-      Folder shouldBe(this->wstr());
-      return contains(shouldBe.content, _item.is);
+      return contains(content, _item.is);
     }
   };
 
@@ -727,15 +768,15 @@ namespace cslib {
       Returns a File object pointing to the created file.
     */
     if (std::filesystem::exists(_inside.is.isAt / _filename))
-      throw_up("File '", _filename, "' already exists in folder '", _inside.is.isAt.wstring(), '\'');
+      throw_up("File '", _filename, "' already exists in folder ", _inside.is.isAt);
     std::filesystem::path newFilePath = _inside.is.isAt / _filename;
     std::ofstream newFile(newFilePath);
     if (!newFile.is_open())
-      throw_up("Failed to create file '", newFilePath.wstring(), '\'');
+      throw_up("Failed to create file ", newFilePath);
     newFile.close(); // Close the file to ensure it's created
     if (!std::filesystem::exists(newFilePath))
-      throw_up("Failed to create file '", newFilePath.wstring(), '\'');
-    return File(newFilePath.wstring());
+      throw_up("Failed to create file ", newFilePath);
+    return File(newFilePath);
   }
   Folder create_folder(Folder _inside, wstrv_t _folderName) {
     /*
@@ -744,12 +785,12 @@ namespace cslib {
       Returns a Folder object pointing to the created folder.
     */
     if (std::filesystem::exists(_inside.is.isAt / _folderName))
-      throw_up("Folder '", _folderName, "' already exists in folder '", _inside.is.isAt.wstring(), '\'');
+      throw_up("Folder '", _folderName, "' already exists in folder ", _inside.is.isAt);
     std::filesystem::path newFolderPath = _inside.is.isAt / _folderName;
     std::filesystem::create_directory(newFolderPath);
     if (!std::filesystem::exists(newFolderPath))
-      throw_up("Failed to create folder '", newFolderPath.wstring(), '\'');
-    return Folder(newFolderPath.wstring());
+      throw_up("Failed to create folder ", newFolderPath);
+    return Folder(newFolderPath);
   }
 
 
@@ -786,11 +827,9 @@ namespace cslib {
 
 
   std::filesystem::space_info disk_space_available() {
-    if constexpr (uintmax_t(-1) == uint32_t(-1))
-      return std::filesystem::space(std::filesystem::current_path()); // No disk space check on 32-bit systems
     std::filesystem::space_info spaceInfo = std::filesystem::space(std::filesystem::current_path());
     if (spaceInfo.available <= 0)
-      throw_up("No disk space available in current directory: ", std::filesystem::current_path().wstring());
+      throw_up("No disk space available in current directory: ", std::filesystem::current_path());
     return spaceInfo;
   }
 } // namespace cslib

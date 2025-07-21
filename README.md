@@ -13,10 +13,10 @@ int main() {
 ```
 
 ### What is this? 💅
-A collection of namespaces, classes, functions and whatnot that comes in handy when programming in C++. Of course I'd be happy if you find it useful too. And if you don't, feel free to add/modify/remove whatever you want. It's all open source (duh) and meant to be improved upon.
+A collection of namespaces, classes, functions and whatnot that comes in handy when programming in C++. It's all open source (duh) and meant to be improved upon.
 
 #
-### I want to contribute! 🤤
+### I want to contribute! 🫦
 Coding is merely an expression art. Liberate yourself from professionalism and embrace wasting time on useless projects. Make a pr and after an frightening little amount of consideration, I <b>WILL</b> merge your changes.
 
 #

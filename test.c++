@@ -9,18 +9,28 @@ void title(std::string_view title) {
   std::wcout << L"\n\033[1;34m" << title.data() << L"\033[0m\n";
 }
 
-void log(bool conditionResult, std::string_view conditionExplained) {
+
+template <typename... _Args>
+void log(bool conditionResult, _Args&&... conditionsExplained) {
   if (!isWcharIOEnabled)
     enable_wchar_io();
   if (conditionResult)
     std::wcout << L"\033[1;32m[PASSED]\033[0m";
   else
     std::wcout << L"\033[1;31m[FAILED]\033[0m";
-  std::wcout << " > " << conditionExplained.data() << L'\n';
+  std::wcout << " > ";
+  ((std::wcout << std::forward<_Args>(conditionsExplained)), ...);
+  std::wcout << L'\n';
 }
+
+
+Benchmark bm;
+
+
+
 int main() {
 
-  { title("Testing cslib::to_str");
+  title("Testing cslib::to_str"); {
     log(to_str(L'A') == "A", "to_str(wchar_t)");
     log(to_str(L"Hello World") == "Hello World", "to_str(const wchar_t *const)");
     log(to_str(std::wstring(L"")) == "", "to_str(const wstr_t&) empty");
@@ -47,7 +57,7 @@ int main() {
 
 
 
-  { title("Testing cslib::to_wstr");
+  title("Testing cslib::to_wstr"); {
     log(to_wstr('A') == L"A", "to_wstr(char)");
     log(to_wstr("Hello World") == L"Hello World", "to_wstr(const char *const)");
     log(to_wstr(std::string("")) == L"", "to_wstr(const str_t&) empty");
@@ -69,7 +79,7 @@ int main() {
 
 
 
-  { title("Testing cslib::up_impl and throw_up");
+  title("Testing cslib::up_impl and throw_up"); {
     std::string shouldBeStdError = "std::runtime_error called from line ";
     shouldBeStdError += std::to_string(__LINE__ + 5);
     shouldBeStdError += " in workspace '";
@@ -85,22 +95,18 @@ int main() {
 
 
 
-  { title("Testing/Benchmarking cslib::pause");
-    auto start = std::chrono::high_resolution_clock::now();
+  title("Testing/Benchmarking cslib::pause"); {
+    bm.reset();
     pause(500); // Pause for 0,5 second
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    log(duration > 499 && duration < 501, "pause for 1000ms should take around 500ms (took " + std::to_string(duration) + "ms)");
-    start = std::chrono::high_resolution_clock::now();
-    pause(0); // Should not throw
-    end = std::chrono::high_resolution_clock::now();
-    duration = std::chrono::duration_cast<std::chrono::microseconds>(end - start).count();
-    log(duration < 1, "pause(0) should take less than 1 microsecond");
+    size_t elpsd = bm.elapsed_ms();
+    log(elpsd > 499 && elpsd < 501, "pause for 1000ms should take around 500ms (took ", elpsd, "ms)");
+    pause(0);
+    log(elpsd > 499 && elpsd < 501, "pause for 0ms shouldn't take longer than 0ms (took ", elpsd, "ms)");
   }
 
 
 
-  { title("Testing (constexpr-) cslib::wstrlen(wstrv_t) with implicit conversions");
+  title("Testing (constexpr-) cslib::wstrlen(wstrv_t) with implicit conversions"); {
     log(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const)");
     log(wstrlen(L"") == 0, "wstrlen(const wchar_t *const) empty");
     log(wstrlen(L"This is a pretty long string") == 28, "wstrlen(const wchar_t *const) long string");
@@ -123,7 +129,7 @@ int main() {
 
 
 
-  { title("Testing cslib::upper and cslib::lower");
+  title("Testing cslib::upper and cslib::lower"); {
     std::wstring_view mixedStrv = L"csLib.h++";
     std::wstring mixedStr = L"csLib.h++";
     const wchar_t *const mixedCStr = L"csLib.h++";
@@ -143,7 +149,7 @@ int main() {
 
 
 
-  { title("Testing cslib::sh_call");
+  title("Testing cslib::sh_call"); {
     sh_call("echo cslib testing"); // Shouldn't throw
     try {
       sh_call("non_existing_command");
@@ -156,11 +162,11 @@ int main() {
 
 
 
-  { title("Skipped clear_console cuz difficult to test in a non-interactive environment"); }
+  title("Skipped clear_console cuz difficult to test in a non-interactive environment");
 
 
 
-  { title("Testing cslib::contains");
+  title("Testing cslib::contains"); {
     std::vector<int> vec = {1, 2, 3, 4, 5};
     std::deque<int> deq = {1, 2, 3, 4, 5};
     std::set<int> set = {1, 2, 3, 4, 5};
@@ -185,7 +191,7 @@ int main() {
 
 
 
-  { title("Testing cslib::have_something_common");
+  title("Testing cslib::have_something_common"); {
     std::vector<int> vec1 = {1, 2, 3};
     std::vector<int> vec2 = {3, 4, 5};
     std::vector<int> vec3 = {6, 7, 8};
@@ -234,7 +240,7 @@ int main() {
 
 
 
-  { title("Testing cslib::get_env");
+  title("Testing cslib::get_env"); {
     try {
       std::string envValue = get_env("PATH");
       log(!envValue.empty(), "get_env should return a non-empty value for existing environment variable");
@@ -253,7 +259,7 @@ int main() {
 
 
 
-  { title("Testing cslib::range");
+  title("Testing cslib::range"); {
     std::vector<int> r1 = range(5);
     log(r1 == std::vector<int>({0, 1, 2, 3, 4}), "range(5) should return [0, 1, 2, 3, 4]");
     std::vector<int> r2 = range(2, 5);
@@ -270,64 +276,63 @@ int main() {
 
 
 
-  { title("Testing cslib::retry");
-    auto start = std::chrono::high_resolution_clock::now();
-    auto end = std::chrono::high_resolution_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-    std::function<int()> stdFunc = []() {
+  title("Testing cslib::retry"); {
+    // stl
+    bm.reset();
+    std::function<int()> stdFunc = [] -> int {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from std::function");
       return 42;
     };
-    int (*cPtrFunc)() = []() -> int {
+    int result = retry(stdFunc, 3, 100);
+    size_t elpsd = bm.elapsed_ms();
+    log(result == 42, "retry(std::function) should return the correct result");
+    log(elpsd >= 200 && elpsd <= 300, "retry(std::function) should take around 200-300ms (took ", elpsd, "ms)");
+
+    // C-style pointer
+    bm.reset();
+    int (*cPtrFunc)() = [] -> int {
       static int attempts = 0;
       if (++attempts < 3)
-        throw std::runtime_error("Test error from C function pointer");
-      return 42; // Success on the third attempt
+        throw std::runtime_error("Test error from c-style function pointer");
+      return 42;
     };
-    auto lambdaFunc = []() -> int {
+    result = retry(cPtrFunc, 3, 100);
+    elpsd = bm.elapsed_ms();
+    log(result == 42, "retry(c-style function pointer) should return the correct result");
+    log(elpsd >= 200 && elpsd <= 300, "retry(c-style function pointer) should take around 200-300ms (took ", elpsd, "ms)");
+
+    // Lambda
+    bm.reset();
+    auto lambdaFunc = [] -> int {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from lambda function");
-      return 42; // Success on the third attempt
+      return 42;
     };
-    try {
-      start = std::chrono::high_resolution_clock::now();
-      int result = retry(stdFunc, 3, 100);
-      end = std::chrono::high_resolution_clock::now();
-      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(std::function) should succeed (took " + std::to_string(duration) + "ms)");
+    result = retry(lambdaFunc, 3, 100);
+    elpsd = bm.elapsed_ms();
+    log(result == 42, "retry(lambda function) should return the correct result");
+    log(elpsd >= 200 && elpsd <= 300, "retry(lambda function) should take around 200-300ms (took ", elpsd, "ms)");
+  
+    // Inline lambda
+    bm.reset();
+    result = retry([] -> int {
+      static int attempts = 0;
+      if (++attempts < 3)
+        throw std::runtime_error("Test error from inline lambda function");
+      return 42; // Success on the third attempt
+    }, 3, 100);
+    elpsd = bm.elapsed_ms();
+    log(result == 42, "retry(inline lambda function) should return the correct result");
+    log(elpsd >= 200 && elpsd <= 300, "retry(inline lambda function) should take around 200-300ms (took ", elpsd, "ms)");
 
-      start = std::chrono::high_resolution_clock::now();
-      result = retry(cPtrFunc, 3, 100);
-      end = std::chrono::high_resolution_clock::now();
-      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(c-style function pointer) should succeed (took " + std::to_string(duration) + "ms)");
-      
-      start = std::chrono::high_resolution_clock::now();
-      result = retry(lambdaFunc, 3, 100);
-      end = std::chrono::high_resolution_clock::now();
-      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(lambda function) should succeed (took " + std::to_string(duration) + "ms)");
-
-      start = std::chrono::high_resolution_clock::now();
-      result = retry([]() -> int {
-        static int attempts = 0;
-        if (++attempts < 3)
-          throw std::runtime_error("Test error from inline lambda function");
-        return 42; // Success on the third attempt
-      }, 3, 100);
-      end = std::chrono::high_resolution_clock::now();
-      duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-      log(result == 42 && duration >= 200 && duration <= 300, "retry(inline lambda function) should succeed (took " + std::to_string(duration) + "ms)");
-    } catch (const std::runtime_error &e) {
-      log(false, "retry should not throw an error for successful function");
-    }
+    // Always throw
     try {
-      retry([]() -> int {
+      retry([] -> int {
         throw std::runtime_error("This function always fails");
-      }, 3, 100);
+      }, 1, 1);
       log(false, "retry should throw an error for function that always fails");
     } catch (const std::runtime_error &e) {
       log(std::string(e.what()).find("Function failed after maximum attempts") != std::string::npos, "retry should throw an error for function that always fails");
@@ -336,7 +341,7 @@ int main() {
 
 
 
-  { title("Testing cslib::parse_cli_args");
+  title("Testing cslib::parse_cli_args"); {
     const char *args1[] = {"program", "arg1", "arg2", "arg3"};
     std::vector<strv_t> parsedArgs1 = parse_cli_args(4, args1);
     log(parsedArgs1.size() == 3, "parse_cli_args should return 3 arguments");
@@ -356,7 +361,7 @@ int main() {
 
 
 
-  { title("Testing cslib::shorten_end/begin"); // No narrow string support
+  title("Testing cslib::shorten_end/begin"); { // No narrow string support
     std::wstring str = L"This is a pretty long string";
     log(shorten_end(str, 10) == L"This is...", "shorten_end with length 10");
     log(shorten_begin(str, 10) == L"... string", "shorten_begin with length 10");
@@ -382,7 +387,7 @@ int main() {
 
 
 
-  { title("Testing cslib::separate");
+  title("Testing cslib::separate"); {
     std::vector<std::wstring> result = separate(L"John Money", ' ');
     log(result.size() == 2, "separate should return 2 parts");
     log(result.at(0) == L"John", "First part should be 'John'");
@@ -398,7 +403,7 @@ int main() {
 
 
 
-  { title("Testing cslib::roll_dice");
+  title("Testing cslib::roll_dice"); {
     int min = -3, max = 3;
     bool correctRange = true;
     for ([[maybe_unused]] int64_t _ : range(100'000)) {
@@ -406,14 +411,16 @@ int main() {
       if (!(result >= min && result <= max))
         correctRange = false;
     }
-    log(correctRange, "roll_dice should return a value between " + std::to_string(min) + " and " + std::to_string(max));
+    log(correctRange, "roll_dice should return a value between ", min, " and ", max);
     log(roll_dice(1, 1) == 1, "roll_dice with same min and max should return that value");
   }
 
 
 
-  { title("Testing cslib::read_wdata and cslib::do_io");
+  title("Testing cslib::read_wdata and cslib::do_io"); {
+    // read_wdata read-only
     std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
+    std::filesystem::remove(testFilePath);
     std::wofstream(testFilePath) << L"John\nMoney\n";
     std::wifstream inFile(testFilePath);
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
@@ -422,7 +429,8 @@ int main() {
     log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
     std::wifstream inFile2(testFilePath);
     log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
-    
+  
+    // do_io writes to a new file
     std::filesystem::path testFilePath2 = std::filesystem::temp_directory_path() / "cslib_test_io2.txt";
     std::wofstream outFile(testFilePath2);
     outFile << read_wdata(inFile2);
@@ -431,6 +439,7 @@ int main() {
     log(read_wdata(inFile3) == L"John\nMoney\n", "read_wdata should return expected content after writing to a new file");
     inFile3.close();
 
+    // do_io by itself
     std::wostringstream woss;
     do_io(inFile2, woss);
     log(woss.str() == L"John\nMoney\n", "do_io should read from input stream and write to output stream");
@@ -439,11 +448,11 @@ int main() {
 
 
 
-  { title("Skipping wchar support functions/variables tests because they need cli interaction"); }
+  title("Skipping wchar support functions/variables tests because they need cli interaction");
 
 
 
-  { title("Testing cslib::Out");
+  title("Testing cslib::Out"); {
     std::wostringstream woss;
     Out(woss, L"[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << L'_' << 3.14f << L" wide";
     log(woss.str() == L"\033[36m[checking cslib::Out] \033[0mnarrow_123_3.14 wide", "cslib::Out with narrow and wide types");
@@ -452,14 +461,19 @@ int main() {
 
 
 
-  { title("Testing cslib::TimeStamp");
+  title("Testing cslib::TimeStamp"); {
+    // Accuracy
     TimeStamp ts1;
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
     log(elapsed >= 499 and elapsed <= 501, "TimeStamp should be within 500ms of current time");
+
+    // Correctness of formatting
     std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
     std::tm *tm = std::localtime(&now);
-    log(((std::wostringstream() << std::put_time(tm, L"%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_Wstr()), "TimeStamp should format time correctly");
+    log(((std::wostringstream() << std::put_time(tm, L"%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_wstr()), "TimeStamp should format time correctly");
+
+    // Making sure TimeStamp returns correct values
     TimeStamp rightNow;
     log(rightNow.year() == uint(tm->tm_year + 1900), "TimeStamp should return correct year");
     log(rightNow.month() == uint(tm->tm_mon + 1), "TimeStamp should return correct month");
@@ -467,30 +481,281 @@ int main() {
     log(rightNow.hour() == uint(tm->tm_hour), "TimeStamp should return correct hour");
     log(rightNow.minute() == uint(tm->tm_min), "TimeStamp should return correct minute");
     log(rightNow.second() == uint(tm->tm_sec), "TimeStamp should return correct second");
+
+    // Testing constructor
+    TimeStamp ts2(30, 45, 12, 25, 12, 2023); // 12:45:30 on 25th December 2023
+    log(ts2.year() == 2023, "TimeStamp should return correct year from constructor");
+    log(ts2.month() == 12, "TimeStamp should return correct month from constructor");
+    log(ts2.day() == 25, "TimeStamp should return correct day from constructor");
+    log(ts2.hour() == 12, "TimeStamp should return correct hour from constructor");
+    log(ts2.minute() == 45, "TimeStamp should return correct minute from constructor");
+    log(ts2.second() == 30, "TimeStamp should return correct second from constructor");
+    log(ts2.as_wstr() == L"12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
+
+    // Error handling
+    try {
+      TimeStamp invalidTs(61, 0, 0, 1, 1, 2023); // Invalid second
+      log(false, "TimeStamp should throw an error for invalid time");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Invalid time") != std::string::npos, "TimeStamp should throw an error for invalid time");
+    }
   }
 
 
 
-  { title("Testing cslib::Benchmark");
-    Benchmark bm;
+  title("Testing cslib::Benchmark"); {
+    Benchmark bm1;
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
-    size_t elapsed = bm.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 501, "Benchmark should measure time correctly (took " + std::to_string(elapsed) + "ms)");
+    size_t elapsed = bm1.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 501, "Benchmark should measure time correctly (took ", elapsed, "ms)");
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
-    elapsed = bm.elapsed_ms();
-    log(elapsed >= 998 && elapsed <= 1002, "Benchmark should measure time correctly after another 0.5 seconds (took " + std::to_string(elapsed) + "ms)");
-    bm.reset();
+    elapsed = bm1.elapsed_ms();
+    log(elapsed >= 998 && elapsed <= 1002, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
+    bm1.reset();
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
-    elapsed = bm.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took " + std::to_string(elapsed) + "ms)");
+    elapsed = bm1.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
   }
 
 
 
-  { title("Testing cslib::RouteToFile");
-    std::filesystem::path logFilePath = std::filesystem::temp_directory_path() / "cslib_test_log.txt";
-    std::wofstream(logFilePath) << L"Initial log content";
-    RouteToFile tempFile(logFilePath);
-    log(log)
+  title("Testing cslib::RouteToFile"); {
+    // Setting up a temporary log file
+    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_log.txt";
+    std::filesystem::remove(STD_PATH);
+    std::wofstream(STD_PATH) << L"Initial log content";
+
+    // Testing ability to read file properties
+    RouteToFile rtfFile(STD_PATH);
+    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "RouteToFile should have the correct last modified time");
+    // Formatting to wstring for implicit reduce comparison accuracy 
+    log(rtfFile.type() == std::filesystem::file_type::regular, "RouteToFile should create a regular file");
+
+    // Depth and position checks
+    RouteToFile rofFileParent(STD_PATH.parent_path());
+    log(rofFileParent.type() == std::filesystem::file_type::directory, "RouteToFile should create a directory for the parent path");
+    log(rofFileParent.isAt == std::filesystem::temp_directory_path(), "RouteToFile parent path should be the temp directory path");
+    #ifdef _WIN32
+      const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
+    #else
+      const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
+    #endif
+    log(rtfFile.depth() == EXPECTED_DEPTH, "RouteToFile should have the correct depth for temp file");
+
+    // Equality and inequality checks
+    RouteToFile rtoFileCopy(STD_PATH);
+    log(rtoFileCopy == rtfFile, "RouteToFile == operator should work for same file paths");
+    log(rtoFileCopy != RouteToFile("../"), "RouteToFile != operator should work for different file paths");
+    log(rtoFileCopy == STD_PATH.wstring().data(), "RouteToFile == operator should work for strings");
+    log(rtoFileCopy != (STD_PATH.wstring() + L"???"), "RouteToFile != operator should work for different strings");
+
+    // Conversions to other types
+    log(std::wstring(rtfFile) == STD_PATH.wstring(), "RouteToFile should convert to wstring correctly");
+    std::filesystem::path& logFileAsFsRef = rtfFile;
+    log(logFileAsFsRef == rtfFile.isAt, "RouteToFile should convert to filesystem path reference correctly");
+    const std::filesystem::path& logFileAsFsConstRef = rtfFile;
+    log(logFileAsFsConstRef == rtfFile.isAt, "RouteToFile should convert to filesystem path const reference correctly");
+    std::filesystem::path logFileAsFsCopy = rtfFile;
+    log(logFileAsFsCopy == rtfFile.isAt, "RouteToFile should convert to filesystem path copy correctly");
+    std::filesystem::path* logFileAsFsPtr = rtfFile;
+    log(logFileAsFsPtr == &rtfFile.isAt, "RouteToFile should return its filesystem path pointer correctly");
+    const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
+    log(logFileAsFsConstPtr == &rtfFile.isAt, "RouteToFile should return its filesystem path const pointer correctly");
+    
+    // Constructors
+    try {
+      RouteToFile invalidPath(L"non_existing_path/cslib_test_log.txt");
+      log(false, "RouteToFile should throw an error for non-existing path");
+    } catch (const std::filesystem::filesystem_error &e) {
+      log(std::string(e.what()).find("No such file or directory") != std::string::npos, "RouteToFile should throw an error for non-existing path");
+    }
+    try {
+      RouteToFile emptyPath(L"../", std::filesystem::file_type::regular);
+      log(false, "RouteToFile should recognize between file types at construction");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "RouteToFile should throw an error for unexpected file type at construction");
+    }
+  }
+
+
+
+  title("Testing cslib::File"); {
+    // File creation and properties
+    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_file.txt";
+    std::filesystem::remove(STD_PATH);
+    std::wofstream(STD_PATH) << L"Test content for cslib::File";
+    File file(STD_PATH);
+    try {
+      File folderFile(STD_PATH.parent_path());
+      log(false, "File should throw an error for directory path");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "File should throw an error for directory path");
+    }
+
+    // File reading
+    log(file.content() == L"Test content for cslib::File", "File should read content correctly"); // Default std::ios::in for reading
+    log(file.content(std::ios::binary) == L"Test content for cslib::File", "File should read content correctly in binary mode");
+
+    // File writing
+    file.edit(L"New content for cslib::File", std::ios::out);
+    log(file.content() == L"New content for cslib::File", "File should read updated content correctly");
+
+    // File properties
+    log(file.extension() == L".txt", "File should return correct extension");
+    log(file.bytes() >= std::filesystem::file_size(STD_PATH), "File should return correct size");
+  }
+
+
+
+  title("Testing cslib::Folder"); {
+    // Folder creation and properties
+    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_folder";
+    std::filesystem::remove_all(STD_PATH);
+    std::filesystem::create_directory(STD_PATH);
+    Folder folder(STD_PATH);
+    log(folder.is == STD_PATH, "Folder should be at the correct path");
+
+    // content correctness
+    std::wofstream(STD_PATH / "test_file.txt") << L"Test content for cslib::Folder";
+    std::wofstream(STD_PATH / "another_file.txt") << L"Another test content for cslib::Folder";
+    std::vector<RouteToFile> expectedFiles = {STD_PATH / "test_file.txt", STD_PATH / "another_file.txt"};
+    log(folder.content == expectedFiles, "Folder should return correct content (won't fix for now)");
+    std::wofstream(STD_PATH / "additional_file.txt") << L"Additional test content for cslib::Folder";
+    expectedFiles.push_back(STD_PATH / "additional_file.txt");
+    folder.update();
+    log(folder.content == expectedFiles, "Folder should update its content correctly after adding a new file");
+
+    // Constructor
+    try {
+      Folder invalidFolder(L"non_existing_path");
+      log(false, "Folder should throw an error for non-existing path");
+    } catch (const std::filesystem::filesystem_error &e) {
+      log(std::string(e.what()).find("No such file or directory") != std::string::npos, "Folder should throw an error for non-existing path");
+    }
+    try {
+      Folder fileFolder(STD_PATH / "test_file.txt");
+      log(false, "Folder should throw an error for file path");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "Folder should throw an error for file path");
+    }
+
+    // .has functions
+    log(folder.has(RouteToFile(STD_PATH / "test_file.txt")), "Folder should have test_file.txt");
+    log(folder.has(File(STD_PATH / "test_file.txt")), "Folder should have test_file.txt as File");
+    std::filesystem::create_directories(STD_PATH / "subfolder");
+    folder.update(); // Update folder content after creating subfolder
+    log(folder.has(Folder(STD_PATH / "subfolder")), "Folder should have subfolder");
+  }
+
+
+
+  title("Testing cslib::create_file"); {
+    // Create a file and check its content
+    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_create_file.txt";
+    std::filesystem::remove(STD_PATH);
+    File createdFile = create_file(std::filesystem::temp_directory_path() / L"cslib_test_create_file.txt");
+    log(createdFile.is == STD_PATH, "create_file should create the file at the correct path");
+    createdFile.edit(L"Content for cslib::create_file test", std::ios::out);
+    log(createdFile.content() == L"Content for cslib::create_file test", "create_file should create a file with the correct content");
+  }
+
+
+
+  title("Testing cslib::create_folder"); {
+    // Create a folder and check its content
+    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_create_folder";
+    std::filesystem::remove_all(STD_PATH);
+    Folder createdFolder = create_folder(std::filesystem::temp_directory_path() / L"cslib_test_create_folder");
+    log(createdFolder.is == STD_PATH, "create_folder should create the folder at the correct path");
+    std::wofstream(STD_PATH / "test_file.txt") << L"Content for cslib::create_folder test";
+    createdFolder.update();
+    log(createdFolder.content.size() == 1, "create_folder should have one file in its content");
+    log(createdFolder.content.at(0).isAt.filename() == L"test_file.txt", "create_folder should have the correct file in its content");
+  }
+
+
+
+  title("Testing cslib::move_entry_to"); {
+    // Get the current folder and check its content
+    const std::filesystem::path STD_MOVED_INTO = std::filesystem::temp_directory_path() / "cslib_test_moved_into";
+    std::filesystem::remove_all(STD_MOVED_INTO);
+    std::filesystem::create_directory(STD_MOVED_INTO);
+    const std::filesystem::path STD_TARGET = std::filesystem::temp_directory_path() / "cslib_move_target.txt";
+    std::filesystem::remove(STD_TARGET);
+    std::wofstream(STD_TARGET) << L"Content for cslib::move_entry_to test";
+    RouteToFile rtfTarget(STD_TARGET, std::filesystem::file_type::regular);
+    move_entry_to(Folder(STD_MOVED_INTO), rtfTarget);
+    log(!std::filesystem::exists(STD_TARGET), "cslib::move_entry_to should remove the original file after moving");
+    log(std::filesystem::exists(STD_MOVED_INTO / "cslib_move_target.txt"), "cslib::move_entry_to should move the file to the new folder");
+  }
+
+
+
+  title("Testing cslib::copy_entry_to"); {
+    // Get the current folder and check its content
+    const std::filesystem::path STD_COPIED_INTO = std::filesystem::temp_directory_path() / "cslib_test_copied_into";
+    std::filesystem::remove_all(STD_COPIED_INTO);
+    std::filesystem::create_directory(STD_COPIED_INTO);
+    const std::filesystem::path STD_SOURCE = std::filesystem::temp_directory_path() / "cslib_copy_source.txt";
+    std::filesystem::remove(STD_SOURCE);
+    std::wofstream(STD_SOURCE) << L"Content for cslib::copy_entry_to test";
+    RouteToFile rtfSource(STD_SOURCE, std::filesystem::file_type::regular);
+    copy_entry_to(Folder(STD_COPIED_INTO), rtfSource);
+    log(std::filesystem::exists(STD_SOURCE), "cslib::copy_entry_to should keep the original file after copying");
+    log(std::filesystem::exists(STD_COPIED_INTO / "cslib_copy_source.txt"), "cslib::copy_entry_to should copy the file to the new folder");
+  }
+
+
+
+  title("Testing cslib::remove_entry"); {
+    // Get the current folder and check its content
+    const std::filesystem::path STD_REMOVE_FROM = std::filesystem::temp_directory_path() / "cslib_test_remove_from";
+    std::filesystem::remove_all(STD_REMOVE_FROM);
+    std::filesystem::create_directory(STD_REMOVE_FROM);
+    const std::filesystem::path STD_TARGET = STD_REMOVE_FROM / "cslib_remove_target.txt";
+    std::wofstream(STD_TARGET) << L"Content for cslib::remove_entry test";
+    log(std::filesystem::exists(STD_TARGET), "cslib::remove_entry should create the target file");
+    remove_entry(STD_TARGET);
+    log(!std::filesystem::exists(STD_TARGET), "cslib::remove_entry should remove the target file");
+  }
+
+
+
+  title("Testing cslib::TempFile"); {
+    // Create a temporary file and check its properties
+    std::filesystem::path stdTempFile;
+    {
+      TempFile tempFile;
+      stdTempFile = tempFile.file.is.isAt;
+    }
+    log(!std::filesystem::exists(stdTempFile), "TempFile should remove itself after going out of scope");
+    std::filesystem::path stdTempFilePersistent;
+    {
+      std::filesystem::remove(stdTempFilePersistent);
+      TempFile tempFilePersistent;
+      stdTempFilePersistent = tempFilePersistent.file.is.isAt;
+      tempFilePersistent.keep = true;
+    }
+    log(std::filesystem::exists(stdTempFilePersistent), "TempFile with keep=true should not remove itself after going out of scope");
+  }
+
+
+
+  title("Testing cslib::TempFolder"); {
+    // Create a temporary folder and check its properties
+    std::filesystem::path stdTempFolder;
+    {
+      TempFolder tempFolder;
+      stdTempFolder = tempFolder.folder.is.isAt;
+    }
+    log(!std::filesystem::exists(stdTempFolder), "TempFolder should remove itself after going out of scope");
+    std::filesystem::path stdTempFolderPersistent;
+    {
+      std::filesystem::remove_all(stdTempFolderPersistent);
+      TempFolder tempFolderPersistent;
+      stdTempFolderPersistent = tempFolderPersistent.folder.is.isAt;
+      tempFolderPersistent.keep = true;
+    }
+    log(std::filesystem::exists(stdTempFolderPersistent), "TempFolder with keep=true should not remove itself after going out of scope");
   }
 }

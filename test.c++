@@ -22,6 +22,10 @@ void log(bool conditionResult, _Args&&... conditionsExplained) {
   std::wcout << L'\n';
 }
 
+bool find_error(const std::runtime_error& e, std::string_view lookFor) {
+  return std::string(e.what()).find(lookFor) != std::string::npos;
+}
+
 
 Benchmark bm;
 
@@ -155,7 +159,7 @@ int main() {
       log(false, "sh_call should throw an error for non-existing command");
     }
     catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Failed to execute command: 'non_existing_command'") != std::string::npos, "sh_call should throw an error for non-existing command");
+      log(find_error(e, "Failed to execute command: 'non_existing_command'"), "sh_call should throw an error for non-existing command");
     }
   }
 
@@ -252,7 +256,7 @@ int main() {
       log(false, "get_env did not throw an error for non-existing environment variable");
     }
     catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Environment variable 'NON_EXISTING_ENV_VAR' not found") != std::string::npos, "get_env should throw an error for non-existing environment variable");
+      log(find_error(e, "Environment variable 'NON_EXISTING_ENV_VAR' not found"), "get_env should throw an error for non-existing environment variable");
     }
   }
 
@@ -334,7 +338,7 @@ int main() {
       }, 1, 1);
       log(false, "retry should throw an error for function that always fails");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Function failed after maximum attempts") != std::string::npos, "retry should throw an error for function that always fails");
+      log(find_error(e, "Function failed after maximum attempts"), "retry should throw an error for function that always fails");
     }
   }
 
@@ -351,7 +355,7 @@ int main() {
       parse_cli_args(0, nullptr);
       log(false, "parse_cli_args should throw an error for zero arguments");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("No command line arguments provided") != std::string::npos, "parse_cli_args should throw an error for zero arguments");
+      log(find_error(e, "No command line arguments provided"), "parse_cli_args should throw an error for zero arguments");
     }
     const char* args2[] = {"program"};
     std::vector<strv_t> parsedArgs2 = parse_cli_args(1, args2);
@@ -370,13 +374,13 @@ int main() {
       shorten_end(str, 2);
       log(false, "shorten_end should throw an error for maxLength less than TRIM_WITH length");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("maxLength must be at least 3 (TRIM_WITH length)") != std::string::npos, "shorten_end should throw an error for maxLength less than TRIM_WITH length");
+      log(find_error(e, "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_end should throw an error for maxLength less than TRIM_WITH length");
     }
     try {
       shorten_begin(str, 2);
       log(false, "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("maxLength must be at least 3 (TRIM_WITH length)") != std::string::npos, "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
+      log(find_error(e, "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
     }
     static_assert(shorten_end(L"This is a pretty long string", 10) == L"This is...", "shorten_end constexpr with length 10");
     static_assert(shorten_begin(L"This is a pretty long string", 10) == L"... string", "shorten_begin constexpr with length 10");
@@ -419,13 +423,13 @@ int main() {
   title("Testing cslib::read_wdata and cslib::do_io"); {
     // read_wdata read-only
     // std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
-    const TempFile TEST_FILE("cslib_test_io.txt");
-    TEST_FILE.file.edit("John\nMoney\n");
-    std::wifstream inFile(TEST_FILE.file.is.isAt);
+    const TempFile TEST_FILE;
+    TEST_FILE.edit("John\nMoney\n");
+    std::wifstream inFile(TEST_FILE.isAt);
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");
     log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
-    std::wifstream inFile2(TEST_FILE.file.is.isAt);
+    std::wifstream inFile2(TEST_FILE.isAt);
     log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
 
     // do_io by itself
@@ -485,7 +489,7 @@ int main() {
       TimeStamp invalidTs(61, 0, 0, 1, 1, 2023); // Invalid second
       log(false, "TimeStamp should throw an error for invalid time");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Invalid time") != std::string::npos, "TimeStamp should throw an error for invalid time");
+      log(find_error(e, "Invalid time"), "TimeStamp should throw an error for invalid time");
     }
   }
 
@@ -507,256 +511,77 @@ int main() {
 
 
 
-  title("Testing cslib::RouteToFile"); {
+  title("Testing cslib::EntryRoute"); {
     // Setting up a temporary log file
     const TempFile FILE;
 
     // Testing ability to read file properties
-    RouteToFile rtfFile(FILE.file.is);
-    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "RouteToFile should have the correct last modified time");
-    log(rtfFile.type() == std::filesystem::file_type::regular, "RouteToFile should create a regular file");
+    EntryRoute rtfFile(FILE);
+    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "EntryRoute should have the correct last modified time");
+    log(rtfFile.type() == std::filesystem::file_type::regular, "EntryRoute should create a regular file");
 
     // Depth and position checks
-    RouteToFile rofFileParent(FILE.file.is.parent());
-    log(rofFileParent.type() == std::filesystem::file_type::directory, "RouteToFile should create a directory for the parent path");
-    log(rofFileParent.isAt == std::filesystem::temp_directory_path(), "RouteToFile parent path should be the temp directory path");
+    EntryRoute rofFileParent(FILE.parent());
+    log(rofFileParent.type() == std::filesystem::file_type::directory, "EntryRoute should create a directory for the parent path");
+    log(rofFileParent == std::filesystem::temp_directory_path(), "EntryRoute parent path should be the temp directory path");
     #ifdef _WIN32
       const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
     #else
       const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
     #endif
-    log(rtfFile.depth() == EXPECTED_DEPTH, "RouteToFile should have the correct depth for temp file");
+    log(rtfFile.depth() == EXPECTED_DEPTH, "EntryRoute should have the correct depth for temp file");
 
     // Equality and inequality checks
-    RouteToFile rtoFileCopy(rtfFile);
-    log(rtoFileCopy == rtfFile, "RouteToFile == operator should work for same file paths");
-    log(rtoFileCopy != RouteToFile("../"), "RouteToFile != operator should work for different file paths");
-    log(rtoFileCopy == FILE.file.wstr().data(), "RouteToFile == operator should work for strings");
-    log(rtoFileCopy != (FILE.file.wstr() + L"???"), "RouteToFile != operator should work for different strings");
+    EntryRoute rtoFileCopy(rtfFile);
+    log(rtoFileCopy == rtfFile, "EntryRoute == operator should work for same file paths");
+    log(rtoFileCopy != EntryRoute("../"), "EntryRoute != operator should work for different file paths");
+    log(rtoFileCopy == FILE.wstr().data(), "EntryRoute == operator should work for strings");
+    log(rtoFileCopy != (FILE.wstr() + L"???"), "EntryRoute != operator should work for different strings");
 
     // Conversions to other types
-    log(std::wstring(rtfFile) == FILE.file.wstr(), "RouteToFile should convert to wstring correctly");
+    log(std::wstring(rtfFile) == FILE.wstr(), "EntryRoute should convert to wstring correctly");
     std::filesystem::path& logFileAsFsRef = rtfFile;
-    log(logFileAsFsRef == rtfFile.isAt, "RouteToFile should convert to filesystem path reference correctly");
+    log(logFileAsFsRef == rtfFile, "EntryRoute should convert to filesystem path reference correctly");
     const std::filesystem::path& logFileAsFsConstRef = rtfFile;
-    log(logFileAsFsConstRef == rtfFile.isAt, "RouteToFile should convert to filesystem path const reference correctly");
+    log(logFileAsFsConstRef == rtfFile, "EntryRoute should convert to filesystem path const reference correctly");
     std::filesystem::path logFileAsFsCopy = rtfFile;
-    log(logFileAsFsCopy == rtfFile.isAt, "RouteToFile should convert to filesystem path copy correctly");
+    log(logFileAsFsCopy == rtfFile, "EntryRoute should convert to filesystem path copy correctly");
     std::filesystem::path* logFileAsFsPtr = rtfFile;
-    log(logFileAsFsPtr == &rtfFile.isAt, "RouteToFile should return its filesystem path pointer correctly");
+    log(logFileAsFsPtr == (void*)&rtfFile, "EntryRoute should return its filesystem path pointer correctly");
     const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
-    log(logFileAsFsConstPtr == &rtfFile.isAt, "RouteToFile should return its filesystem path const pointer correctly");
-    
+    log(logFileAsFsConstPtr == (void*)&rtfFile, "EntryRoute should return its filesystem path const pointer correctly");
+
     // Constructors
     try {
-      RouteToFile invalidPath(L"non_existing_path/cslib_test_log.txt");
-      log(false, "RouteToFile should throw an error for non-existing path");
+      EntryRoute invalidPath(L"non_existing_path/cslib_test_log.txt");
+      log(false, "EntryRoute should throw an error for non-existing path");
     } catch (const std::filesystem::filesystem_error &e) {
-      log(std::string(e.what()).find("No such file or directory") != std::string::npos, "RouteToFile should throw an error for non-existing path");
+      log(find_error(e, "No such file or directory"), "EntryRoute should throw an error for non-existing path");
     }
     try {
-      RouteToFile emptyPath(L"../", std::filesystem::file_type::regular);
-      log(false, "RouteToFile should recognize between file types at construction");
+      EntryRoute emptyPath(L"../", std::filesystem::file_type::regular);
+      log(false, "EntryRoute should recognize between file types at construction");
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "RouteToFile should throw an error for unexpected file type at construction");
+      log(find_error(e, "Path '"), "EntryRoute should throw an error for unexpected file type at construction");
     }
   }
 
 
 
-  title("Testing cslib::Folder"); {
-    // Folder creation and properties
-    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_folder";
-    std::filesystem::remove_all(STD_PATH);
-    std::filesystem::create_directory(STD_PATH);
-    Folder folder(STD_PATH);
-    log(folder.is == STD_PATH, "Folder should be at the correct path");
+  title("Testing cslib::EntryRoute disk operations"); {
+    TempFile tempFile;
+    TempFolder tempFolder;
+    TempFile dummyFile;
+    TempFolder dummyFolder;
+    TempFile dummyFoldersFile;
 
-    // content correctness
-    std::wofstream(STD_PATH / "test_file.txt") << L"Test content for cslib::Folder";
-    std::wofstream(STD_PATH / "another_file.txt") << L"Another test content for cslib::Folder";
-    std::vector<RouteToFile> expectedFiles = {STD_PATH / "test_file.txt", STD_PATH / "another_file.txt"};
-    log(folder.content == expectedFiles, "Folder should return correct content (won't fix for now)");
-    std::wofstream(STD_PATH / "additional_file.txt") << L"Additional test content for cslib::Folder";
-    expectedFiles.push_back(STD_PATH / "additional_file.txt");
-    folder.update();
-    log(folder.content == expectedFiles, "Folder should update its content correctly after adding a new file");
-
-    // Constructor
+    // Move
     try {
-      Folder invalidFolder(L"non_existing_path");
-      log(false, "Folder should throw an error for non-existing path");
-    } catch (const std::filesystem::filesystem_error &e) {
-      log(std::string(e.what()).find("No such file or directory") != std::string::npos, "Folder should throw an error for non-existing path");
-    }
-    try {
-      Folder fileFolder(STD_PATH / "test_file.txt");
-      log(false, "Folder should throw an error for file path");
+      dummyFile.move_self_into(tempFile);
     } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "Folder should throw an error for file path");
+      log(find_error(e, "is not a directory"), "EntryRoute move_self_into should throw for moving into a file");
     }
-
-    // .has functions
-    log(folder.has(RouteToFile(STD_PATH / "test_file.txt")), "Folder should have test_file.txt");
-    log(folder.has(File(STD_PATH / "test_file.txt").is), "Folder should have test_file.txt as File");
-    std::filesystem::create_directories(STD_PATH / "subfolder");
-    folder.update(); // Update folder content after creating subfolder
-    log(folder.has(Folder(STD_PATH / "subfolder").is), "Folder should have subfolder");
-
-    // Folder creation
-    const std::filesystem::path STD_PATH2 = std::filesystem::temp_directory_path() / "cslib_test_folder2";
-    std::filesystem::remove_all(STD_PATH2);
-    Folder folder2 = Folder::create(STD_PATH2);
-    log(folder2.is == STD_PATH2, "Folder should be created at the correct path");
-    log(folder2.is.type() == std::filesystem::file_type::directory, "Folder should be a directory");
-    log(folder2.content.empty(), "Folder should be empty after creation");
-    std::wofstream(STD_PATH2 / "new_file.txt") << L"New file content for cslib::Folder";
-    folder2.update();
-    log(folder2.content.size() == 1, "Folder should have one file after adding a new file");
-    log(folder2.content.front() == STD_PATH2 / "new_file.txt", "Folder should have the new file in its content");
-
-    // Folder copy/move (as entry on disk)
-    TempFolder tfolder;
-    Folder folder3 = folder2.copy_self_into(tfolder.folder.is);
-    std::wofstream(tfolder.is.isAt / "new_file.txt") << L"New file content for cslib::Folder copy";
-    const std::filesystem::path STD_PATH3_SUB = tfolder.is.isAt / "subfolder";
-    std::filesystem::create_directory(STD_PATH3_SUB);
-    std::wofstream(STD_PATH3_SUB / "subfile.txt") << L"Subfolder file content for cslib::Folder";
-    log(tfolder.is.parent() == PATH3.folder.is.parent(), "Folder copy should be in the correct parent path");
-    log(tfolder.is.type() == std::filesystem::file_type::directory, "Folder copy should be a directory");
-    log(tfolder.content.size() == 2, "Folder copy should have one file after copying");
-    // log(folder3.content.at(1) == STD_PATH3 / "cslib_test_folder2" / "new_file.txt", "Folder copy should have the new file in its content");
-    log(tfolder.content.at(0) == STD_PATH3_SUB, "Folder copy should have the subfolder in its content");
-    Folder folder3Sub = Folder(tfolder.content.at(0));
-    log(folder3Sub.content.size() == 2, "Folder copy subfolder should have two files after copying");
-    log(folder3Sub.content.front() == STD_PATH3_SUB / "subfile.txt", "Folder copy subfolder should have the subfile in its content");
-    try {
-      folder2.copy_self_into(PATH3.folder.is);
-      log(false, "Folder should throw an error for moving into a directory that already contains a folder with the same name");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "Folder should throw an error for moving into a directory that already contains a folder with the same name");
-    }
-    // try {
-    //   folder2.copy_self_into(STD_PATH3 / "cslib_test_folder2");
-    //   log(false, "Folder should throw an error for copying into a folder type path");
-    // } catch (const std::runtime_error &e) {}
-  }
-
-
-
-  title("Testing cslib::File"); {
-    // File contruction and properties
-    const TempFile FILE;
-    FILE.file.edit("Test content for cslib::File");
-    try {
-      File folderFile(FILE.file.is.parent());
-      log(false, "File should throw an error for directory path");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "File should throw an error for directory path");
-    }
-
-    // File reading
-    log(FILE.file.content() == L"Test content for cslib::File", "File should read content correctly"); // Default std::ios::in for reading
-    log(FILE.file.content(std::ios::binary) == L"Test content for cslib::File", "File should read content correctly in binary mode");
-
-    // File writing
-    FILE.file.edit(L"New content for cslib::File", std::ios::out);
-    log(FILE.file.content() == L"New content for cslib::File", "File should read updated content correctly");
-
-    // File properties
-    log(FILE.file.extension() == L".tmp", "File should return correct extension");
-    log(FILE.file.bytes() >= std::filesystem::file_size(FILE.file.is), "File should return correct size");
-
-    // File creation
-    const std::filesystem::path STD_PATH2 = std::filesystem::temp_directory_path() / "cslib_test_file2.txt";
-    std::filesystem::remove(STD_PATH2); // Ensure the file does not exist before
-    File file2 = File::create(STD_PATH2);
-    log(file2.is == STD_PATH2, "File should be created at the correct path");
-    log(file2.is.type() == std::filesystem::file_type::regular, "File should be a regular file");
-    log(file2.bytes() == 0, "File should be empty after creation");
-
-    // File copy/move (as entry on disk)
-    TempFolder folder1;
-    File file3 = file2.copy_self_into(folder1.folder.is);
-    folder1.folder.update();
-    log(file3.is == folder1.folder.is / STD_PATH2.filename(), "File should be copied to the correct path");
-    log(file3.is.type() == std::filesystem::file_type::regular, "File copy should be a regular file");
-    try {
-      file2.copy_self_into(folder1.folder.is);
-      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
-    }
-    try {
-      file2.copy_self_into(STD_PATH2);
-      log(false, "File should throw an error for copying into a file type path");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("is not a directory") != std::string::npos, "File should throw an error for copying into a file type path");
-    }
-    try {
-      file2.move_self_into(std::filesystem::temp_directory_path());
-      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
-    }
-    const std::filesystem::path STD_PATH4 = std::filesystem::temp_directory_path() / "cslib_test_folder4";
-    std::filesystem::remove_all(STD_PATH4);
-    std::filesystem::create_directory(STD_PATH4);
-    file2.move_self_into(STD_PATH4);
-    log(file2.is == STD_PATH4 / "cslib_test_file2.txt", "File should be moved to the correct path");
-    log(file2.is.type() == std::filesystem::file_type::regular, "File should be a regular file after moving");
-    log(!std::filesystem::exists(STD_PATH2), "Original file should not exist after moving");
-    try {
-      file2.move_self_into(STD_PATH4);
-      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
-    }
-    try {
-      file2.move_self_into(STD_PATH4 / "cslib_test_file2.txt");
-      log(false, "File should throw an error for moving into a file type path");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("is not a directory") != std::string::npos, "File should throw an error for moving into a file type path");
-    }
-  }
-
-
-
-  title("Testing cslib::TempFile"); {
-    // Create a temporary file and check its properties
-    std::filesystem::path stdTempFile;
-    {
-      TempFile tempFile;
-      stdTempFile = tempFile.file.is.isAt;
-    }
-    log(!std::filesystem::exists(stdTempFile), "TempFile should remove itself after going out of scope");
-    std::filesystem::path stdTempFilePersistent;
-    {
-      std::filesystem::remove(stdTempFilePersistent);
-      TempFile tempFilePersistent;
-      stdTempFilePersistent = tempFilePersistent.file.is.isAt;
-      tempFilePersistent.keep = true;
-    }
-    log(std::filesystem::exists(stdTempFilePersistent), "TempFile with keep=true should not remove itself after going out of scope");
-  }
-
-
-
-  title("Testing cslib::TempFolder"); {
-    // Create a temporary folder and check its properties
-    std::filesystem::path stdTempFolder;
-    {
-      TempFolder tempFolder;
-      stdTempFolder = tempFolder.folder.is.isAt;
-    }
-    log(!std::filesystem::exists(stdTempFolder), "TempFolder should remove itself after going out of scope");
-    std::filesystem::path stdTempFolderPersistent;
-    {
-      std::filesystem::remove_all(stdTempFolderPersistent);
-      TempFolder tempFolderPersistent;
-      stdTempFolderPersistent = tempFolderPersistent.folder.is.isAt;
-      tempFolderPersistent.keep = true;
-    }
-    log(std::filesystem::exists(stdTempFolderPersistent), "TempFolder with keep=true should not remove itself after going out of scope");
+    dummyFile.move_self_into(tempFolder);
+    log(dummyFile == tempFolder / dummyFile.isAt.filename(), "EntryRoute move_self_into should move file into folder");
   }
 }

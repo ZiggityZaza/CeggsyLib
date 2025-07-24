@@ -1,6 +1,5 @@
 #include "./cslib.h++"
 using namespace cslib;
-#include <cassert>
 
 
 void title(std::string_view title) {
@@ -419,31 +418,20 @@ int main() {
 
   title("Testing cslib::read_wdata and cslib::do_io"); {
     // read_wdata read-only
-    std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
-    std::filesystem::remove(testFilePath);
-    std::wofstream(testFilePath) << L"John\nMoney\n";
-    std::wifstream inFile(testFilePath);
+    // std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
+    const TempFile TEST_FILE("cslib_test_io.txt");
+    TEST_FILE.file.edit("John\nMoney\n");
+    std::wifstream inFile(TEST_FILE.file.is.isAt);
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
-    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");;
-    inFile.close();
+    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");
     log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
-    std::wifstream inFile2(testFilePath);
+    std::wifstream inFile2(TEST_FILE.file.is.isAt);
     log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
-  
-    // do_io writes to a new file
-    std::filesystem::path testFilePath2 = std::filesystem::temp_directory_path() / "cslib_test_io2.txt";
-    std::wofstream outFile(testFilePath2);
-    outFile << read_wdata(inFile2);
-    outFile.close();
-    std::wifstream inFile3(testFilePath2);
-    log(read_wdata(inFile3) == L"John\nMoney\n", "read_wdata should return expected content after writing to a new file");
-    inFile3.close();
 
     // do_io by itself
     std::wostringstream woss;
     do_io(inFile2, woss);
     log(woss.str() == L"John\nMoney\n", "do_io should read from input stream and write to output stream");
-    inFile2.close();
   }
 
 
@@ -521,18 +509,15 @@ int main() {
 
   title("Testing cslib::RouteToFile"); {
     // Setting up a temporary log file
-    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_log.txt";
-    std::filesystem::remove(STD_PATH);
-    std::wofstream(STD_PATH) << L"Initial log content";
+    const TempFile FILE;
 
     // Testing ability to read file properties
-    RouteToFile rtfFile(STD_PATH);
+    RouteToFile rtfFile(FILE.file.is);
     log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "RouteToFile should have the correct last modified time");
-    // Formatting to wstring for implicit reduce comparison accuracy 
     log(rtfFile.type() == std::filesystem::file_type::regular, "RouteToFile should create a regular file");
 
     // Depth and position checks
-    RouteToFile rofFileParent(STD_PATH.parent_path());
+    RouteToFile rofFileParent(FILE.file.is.parent());
     log(rofFileParent.type() == std::filesystem::file_type::directory, "RouteToFile should create a directory for the parent path");
     log(rofFileParent.isAt == std::filesystem::temp_directory_path(), "RouteToFile parent path should be the temp directory path");
     #ifdef _WIN32
@@ -543,14 +528,14 @@ int main() {
     log(rtfFile.depth() == EXPECTED_DEPTH, "RouteToFile should have the correct depth for temp file");
 
     // Equality and inequality checks
-    RouteToFile rtoFileCopy(STD_PATH);
+    RouteToFile rtoFileCopy(rtfFile);
     log(rtoFileCopy == rtfFile, "RouteToFile == operator should work for same file paths");
     log(rtoFileCopy != RouteToFile("../"), "RouteToFile != operator should work for different file paths");
-    log(rtoFileCopy == STD_PATH.wstring().data(), "RouteToFile == operator should work for strings");
-    log(rtoFileCopy != (STD_PATH.wstring() + L"???"), "RouteToFile != operator should work for different strings");
+    log(rtoFileCopy == FILE.file.wstr().data(), "RouteToFile == operator should work for strings");
+    log(rtoFileCopy != (FILE.file.wstr() + L"???"), "RouteToFile != operator should work for different strings");
 
     // Conversions to other types
-    log(std::wstring(rtfFile) == STD_PATH.wstring(), "RouteToFile should convert to wstring correctly");
+    log(std::wstring(rtfFile) == FILE.file.wstr(), "RouteToFile should convert to wstring correctly");
     std::filesystem::path& logFileAsFsRef = rtfFile;
     log(logFileAsFsRef == rtfFile.isAt, "RouteToFile should convert to filesystem path reference correctly");
     const std::filesystem::path& logFileAsFsConstRef = rtfFile;
@@ -575,34 +560,6 @@ int main() {
     } catch (const std::runtime_error &e) {
       log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "RouteToFile should throw an error for unexpected file type at construction");
     }
-  }
-
-
-
-  title("Testing cslib::File"); {
-    // File creation and properties
-    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_file.txt";
-    std::filesystem::remove(STD_PATH);
-    std::wofstream(STD_PATH) << L"Test content for cslib::File";
-    File file(STD_PATH);
-    try {
-      File folderFile(STD_PATH.parent_path());
-      log(false, "File should throw an error for directory path");
-    } catch (const std::runtime_error &e) {
-      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "File should throw an error for directory path");
-    }
-
-    // File reading
-    log(file.content() == L"Test content for cslib::File", "File should read content correctly"); // Default std::ios::in for reading
-    log(file.content(std::ios::binary) == L"Test content for cslib::File", "File should read content correctly in binary mode");
-
-    // File writing
-    file.edit(L"New content for cslib::File", std::ios::out);
-    log(file.content() == L"New content for cslib::File", "File should read updated content correctly");
-
-    // File properties
-    log(file.extension() == L".txt", "File should return correct extension");
-    log(file.bytes() >= std::filesystem::file_size(STD_PATH), "File should return correct size");
   }
 
 
@@ -641,82 +598,126 @@ int main() {
 
     // .has functions
     log(folder.has(RouteToFile(STD_PATH / "test_file.txt")), "Folder should have test_file.txt");
-    log(folder.has(File(STD_PATH / "test_file.txt")), "Folder should have test_file.txt as File");
+    log(folder.has(File(STD_PATH / "test_file.txt").is), "Folder should have test_file.txt as File");
     std::filesystem::create_directories(STD_PATH / "subfolder");
     folder.update(); // Update folder content after creating subfolder
-    log(folder.has(Folder(STD_PATH / "subfolder")), "Folder should have subfolder");
+    log(folder.has(Folder(STD_PATH / "subfolder").is), "Folder should have subfolder");
+
+    // Folder creation
+    const std::filesystem::path STD_PATH2 = std::filesystem::temp_directory_path() / "cslib_test_folder2";
+    std::filesystem::remove_all(STD_PATH2);
+    Folder folder2 = Folder::create(STD_PATH2);
+    log(folder2.is == STD_PATH2, "Folder should be created at the correct path");
+    log(folder2.is.type() == std::filesystem::file_type::directory, "Folder should be a directory");
+    log(folder2.content.empty(), "Folder should be empty after creation");
+    std::wofstream(STD_PATH2 / "new_file.txt") << L"New file content for cslib::Folder";
+    folder2.update();
+    log(folder2.content.size() == 1, "Folder should have one file after adding a new file");
+    log(folder2.content.front() == STD_PATH2 / "new_file.txt", "Folder should have the new file in its content");
+
+    // Folder copy/move (as entry on disk)
+    TempFolder tfolder;
+    Folder folder3 = folder2.copy_self_into(tfolder.folder.is);
+    std::wofstream(tfolder.is.isAt / "new_file.txt") << L"New file content for cslib::Folder copy";
+    const std::filesystem::path STD_PATH3_SUB = tfolder.is.isAt / "subfolder";
+    std::filesystem::create_directory(STD_PATH3_SUB);
+    std::wofstream(STD_PATH3_SUB / "subfile.txt") << L"Subfolder file content for cslib::Folder";
+    log(tfolder.is.parent() == PATH3.folder.is.parent(), "Folder copy should be in the correct parent path");
+    log(tfolder.is.type() == std::filesystem::file_type::directory, "Folder copy should be a directory");
+    log(tfolder.content.size() == 2, "Folder copy should have one file after copying");
+    // log(folder3.content.at(1) == STD_PATH3 / "cslib_test_folder2" / "new_file.txt", "Folder copy should have the new file in its content");
+    log(tfolder.content.at(0) == STD_PATH3_SUB, "Folder copy should have the subfolder in its content");
+    Folder folder3Sub = Folder(tfolder.content.at(0));
+    log(folder3Sub.content.size() == 2, "Folder copy subfolder should have two files after copying");
+    log(folder3Sub.content.front() == STD_PATH3_SUB / "subfile.txt", "Folder copy subfolder should have the subfile in its content");
+    try {
+      folder2.copy_self_into(PATH3.folder.is);
+      log(false, "Folder should throw an error for moving into a directory that already contains a folder with the same name");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "Folder should throw an error for moving into a directory that already contains a folder with the same name");
+    }
+    // try {
+    //   folder2.copy_self_into(STD_PATH3 / "cslib_test_folder2");
+    //   log(false, "Folder should throw an error for copying into a folder type path");
+    // } catch (const std::runtime_error &e) {}
   }
 
 
 
-  title("Testing cslib::create_file"); {
-    // Create a file and check its content
-    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_create_file.txt";
-    std::filesystem::remove(STD_PATH);
-    File createdFile = create_file(std::filesystem::temp_directory_path() / L"cslib_test_create_file.txt");
-    log(createdFile.is == STD_PATH, "create_file should create the file at the correct path");
-    createdFile.edit(L"Content for cslib::create_file test", std::ios::out);
-    log(createdFile.content() == L"Content for cslib::create_file test", "create_file should create a file with the correct content");
-  }
+  title("Testing cslib::File"); {
+    // File contruction and properties
+    const TempFile FILE;
+    FILE.file.edit("Test content for cslib::File");
+    try {
+      File folderFile(FILE.file.is.parent());
+      log(false, "File should throw an error for directory path");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("Path '" /*...*/) != std::string::npos, "File should throw an error for directory path");
+    }
 
+    // File reading
+    log(FILE.file.content() == L"Test content for cslib::File", "File should read content correctly"); // Default std::ios::in for reading
+    log(FILE.file.content(std::ios::binary) == L"Test content for cslib::File", "File should read content correctly in binary mode");
 
+    // File writing
+    FILE.file.edit(L"New content for cslib::File", std::ios::out);
+    log(FILE.file.content() == L"New content for cslib::File", "File should read updated content correctly");
 
-  title("Testing cslib::create_folder"); {
-    // Create a folder and check its content
-    const std::filesystem::path STD_PATH = std::filesystem::temp_directory_path() / "cslib_test_create_folder";
-    std::filesystem::remove_all(STD_PATH);
-    Folder createdFolder = create_folder(std::filesystem::temp_directory_path() / L"cslib_test_create_folder");
-    log(createdFolder.is == STD_PATH, "create_folder should create the folder at the correct path");
-    std::wofstream(STD_PATH / "test_file.txt") << L"Content for cslib::create_folder test";
-    createdFolder.update();
-    log(createdFolder.content.size() == 1, "create_folder should have one file in its content");
-    log(createdFolder.content.at(0).isAt.filename() == L"test_file.txt", "create_folder should have the correct file in its content");
-  }
+    // File properties
+    log(FILE.file.extension() == L".tmp", "File should return correct extension");
+    log(FILE.file.bytes() >= std::filesystem::file_size(FILE.file.is), "File should return correct size");
 
+    // File creation
+    const std::filesystem::path STD_PATH2 = std::filesystem::temp_directory_path() / "cslib_test_file2.txt";
+    std::filesystem::remove(STD_PATH2); // Ensure the file does not exist before
+    File file2 = File::create(STD_PATH2);
+    log(file2.is == STD_PATH2, "File should be created at the correct path");
+    log(file2.is.type() == std::filesystem::file_type::regular, "File should be a regular file");
+    log(file2.bytes() == 0, "File should be empty after creation");
 
-
-  title("Testing cslib::move_entry_to"); {
-    // Get the current folder and check its content
-    const std::filesystem::path STD_MOVED_INTO = std::filesystem::temp_directory_path() / "cslib_test_moved_into";
-    std::filesystem::remove_all(STD_MOVED_INTO);
-    std::filesystem::create_directory(STD_MOVED_INTO);
-    const std::filesystem::path STD_TARGET = std::filesystem::temp_directory_path() / "cslib_move_target.txt";
-    std::filesystem::remove(STD_TARGET);
-    std::wofstream(STD_TARGET) << L"Content for cslib::move_entry_to test";
-    RouteToFile rtfTarget(STD_TARGET, std::filesystem::file_type::regular);
-    move_entry_to(Folder(STD_MOVED_INTO), rtfTarget);
-    log(!std::filesystem::exists(STD_TARGET), "cslib::move_entry_to should remove the original file after moving");
-    log(std::filesystem::exists(STD_MOVED_INTO / "cslib_move_target.txt"), "cslib::move_entry_to should move the file to the new folder");
-  }
-
-
-
-  title("Testing cslib::copy_entry_to"); {
-    // Get the current folder and check its content
-    const std::filesystem::path STD_COPIED_INTO = std::filesystem::temp_directory_path() / "cslib_test_copied_into";
-    std::filesystem::remove_all(STD_COPIED_INTO);
-    std::filesystem::create_directory(STD_COPIED_INTO);
-    const std::filesystem::path STD_SOURCE = std::filesystem::temp_directory_path() / "cslib_copy_source.txt";
-    std::filesystem::remove(STD_SOURCE);
-    std::wofstream(STD_SOURCE) << L"Content for cslib::copy_entry_to test";
-    RouteToFile rtfSource(STD_SOURCE, std::filesystem::file_type::regular);
-    copy_entry_to(Folder(STD_COPIED_INTO), rtfSource);
-    log(std::filesystem::exists(STD_SOURCE), "cslib::copy_entry_to should keep the original file after copying");
-    log(std::filesystem::exists(STD_COPIED_INTO / "cslib_copy_source.txt"), "cslib::copy_entry_to should copy the file to the new folder");
-  }
-
-
-
-  title("Testing cslib::remove_entry"); {
-    // Get the current folder and check its content
-    const std::filesystem::path STD_REMOVE_FROM = std::filesystem::temp_directory_path() / "cslib_test_remove_from";
-    std::filesystem::remove_all(STD_REMOVE_FROM);
-    std::filesystem::create_directory(STD_REMOVE_FROM);
-    const std::filesystem::path STD_TARGET = STD_REMOVE_FROM / "cslib_remove_target.txt";
-    std::wofstream(STD_TARGET) << L"Content for cslib::remove_entry test";
-    log(std::filesystem::exists(STD_TARGET), "cslib::remove_entry should create the target file");
-    remove_entry(STD_TARGET);
-    log(!std::filesystem::exists(STD_TARGET), "cslib::remove_entry should remove the target file");
+    // File copy/move (as entry on disk)
+    TempFolder folder1;
+    File file3 = file2.copy_self_into(folder1.folder.is);
+    folder1.folder.update();
+    log(file3.is == folder1.folder.is / STD_PATH2.filename(), "File should be copied to the correct path");
+    log(file3.is.type() == std::filesystem::file_type::regular, "File copy should be a regular file");
+    try {
+      file2.copy_self_into(folder1.folder.is);
+      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
+    }
+    try {
+      file2.copy_self_into(STD_PATH2);
+      log(false, "File should throw an error for copying into a file type path");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("is not a directory") != std::string::npos, "File should throw an error for copying into a file type path");
+    }
+    try {
+      file2.move_self_into(std::filesystem::temp_directory_path());
+      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
+    }
+    const std::filesystem::path STD_PATH4 = std::filesystem::temp_directory_path() / "cslib_test_folder4";
+    std::filesystem::remove_all(STD_PATH4);
+    std::filesystem::create_directory(STD_PATH4);
+    file2.move_self_into(STD_PATH4);
+    log(file2.is == STD_PATH4 / "cslib_test_file2.txt", "File should be moved to the correct path");
+    log(file2.is.type() == std::filesystem::file_type::regular, "File should be a regular file after moving");
+    log(!std::filesystem::exists(STD_PATH2), "Original file should not exist after moving");
+    try {
+      file2.move_self_into(STD_PATH4);
+      log(false, "File should throw an error for moving into a directory that already contains a file with the same name");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("already exists in folder") != std::string::npos, "File should throw an error for moving into a directory that already contains a file with the same name");
+    }
+    try {
+      file2.move_self_into(STD_PATH4 / "cslib_test_file2.txt");
+      log(false, "File should throw an error for moving into a file type path");
+    } catch (const std::runtime_error &e) {
+      log(std::string(e.what()).find("is not a directory") != std::string::npos, "File should throw an error for moving into a file type path");
+    }
   }
 
 

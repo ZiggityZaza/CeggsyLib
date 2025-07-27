@@ -11,6 +11,12 @@
                 "-o",
                 "${fileDirname}/${fileBasenameNoExtension}",
                 "-std=c++23",
+                "-Wall",
+                "-Wextra",
+                "-Wpedantic",
+                "-Werror",
+                "-Wno-unused-parameter",
+                "-Wno-unused-variable",
             ],
             "options": {
                 "cwd": "${fileDirname}"

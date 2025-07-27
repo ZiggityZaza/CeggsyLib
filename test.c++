@@ -30,9 +30,7 @@ bool find_error(const std::runtime_error& e, std::string_view lookFor) {
 Benchmark bm;
 
 
-
 int main() {
-
   title("Testing cslib::to_str"); {
     log(to_str(L'A') == "A", "to_str(wchar_t)");
     log(to_str(L"Hello World") == "Hello World", "to_str(const wchar_t *const)");
@@ -56,6 +54,20 @@ int main() {
     static_assert(to_str(std::wstring(L"This is a pretty long string")) == "This is a pretty long string", "to_str(const wstr_t&) long string constexpr");
     static_assert(to_str(std::wstring_view(L"Hello World")) == "Hello World", "to_str(const wstrv_t&) constexpr");
     // Cant constexpr to_str(const auto&) because it uses std::ostringstream
+    try {
+      to_str(L'\x100'); // Should throw
+      log(false, "to_str(wchar_t) should throw for non-representable character");
+    }
+    catch (const std::runtime_error &e) {
+      log(find_error(e, "to_str(wchar_t) cannot convert wide character to narrow string"), "to_str(wchar_t) throws for non-representable character");
+    }
+    try {
+      to_str(L"Hello \x100 World"); // Should throw
+      log(false, "to_str(const wchar_t *const) should throw for non-representable character");
+    }
+    catch (const std::runtime_error &e) {
+      log(find_error(e, "to_str(const wchar_t *const) cannot convert wide string to narrow string"), "to_str(const wchar_t *const) throws for non-representable character");
+    }
   }
 
 
@@ -101,8 +113,8 @@ int main() {
   title("Testing/Benchmarking cslib::pause"); {
     bm.reset();
     pause(500); // Pause for 0,5 second
-    size_t elpsd = bm.elapsed_ms();
-    log(elpsd > 499 && elpsd < 501, "pause for 1000ms should take around 500ms (took ", elpsd, "ms)");
+    double elpsd = bm.elapsed_ms();
+    log(elpsd > 499 && elpsd < 501, "pause for 500ms should take around 500ms (took ", elpsd, "ms)");
     pause(0);
     log(elpsd > 499 && elpsd < 501, "pause for 0ms shouldn't take longer than 0ms (took ", elpsd, "ms)");
   }
@@ -428,6 +440,7 @@ int main() {
     std::wifstream inFile(TEST_FILE.isAt);
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
     log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");
+    inFile.close();
     log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
     std::wifstream inFile2(TEST_FILE.isAt);
     log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
@@ -498,7 +511,7 @@ int main() {
   title("Testing cslib::Benchmark"); {
     Benchmark bm1;
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
-    size_t elapsed = bm1.elapsed_ms();
+    double elapsed = bm1.elapsed_ms();
     log(elapsed >= 499 && elapsed <= 501, "Benchmark should measure time correctly (took ", elapsed, "ms)");
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
     elapsed = bm1.elapsed_ms();
@@ -507,81 +520,5 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
     elapsed = bm1.elapsed_ms();
     log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
-  }
-
-
-
-  title("Testing cslib::EntryRoute"); {
-    // Setting up a temporary log file
-    const TempFile FILE;
-
-    // Testing ability to read file properties
-    EntryRoute rtfFile(FILE);
-    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "EntryRoute should have the correct last modified time");
-    log(rtfFile.type() == std::filesystem::file_type::regular, "EntryRoute should create a regular file");
-
-    // Depth and position checks
-    EntryRoute rofFileParent(FILE.parent());
-    log(rofFileParent.type() == std::filesystem::file_type::directory, "EntryRoute should create a directory for the parent path");
-    log(rofFileParent == std::filesystem::temp_directory_path(), "EntryRoute parent path should be the temp directory path");
-    #ifdef _WIN32
-      const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
-    #else
-      const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
-    #endif
-    log(rtfFile.depth() == EXPECTED_DEPTH, "EntryRoute should have the correct depth for temp file");
-
-    // Equality and inequality checks
-    EntryRoute rtoFileCopy(rtfFile);
-    log(rtoFileCopy == rtfFile, "EntryRoute == operator should work for same file paths");
-    log(rtoFileCopy != EntryRoute("../"), "EntryRoute != operator should work for different file paths");
-    log(rtoFileCopy == FILE.wstr().data(), "EntryRoute == operator should work for strings");
-    log(rtoFileCopy != (FILE.wstr() + L"???"), "EntryRoute != operator should work for different strings");
-
-    // Conversions to other types
-    log(std::wstring(rtfFile) == FILE.wstr(), "EntryRoute should convert to wstring correctly");
-    std::filesystem::path& logFileAsFsRef = rtfFile;
-    log(logFileAsFsRef == rtfFile, "EntryRoute should convert to filesystem path reference correctly");
-    const std::filesystem::path& logFileAsFsConstRef = rtfFile;
-    log(logFileAsFsConstRef == rtfFile, "EntryRoute should convert to filesystem path const reference correctly");
-    std::filesystem::path logFileAsFsCopy = rtfFile;
-    log(logFileAsFsCopy == rtfFile, "EntryRoute should convert to filesystem path copy correctly");
-    std::filesystem::path* logFileAsFsPtr = rtfFile;
-    log(logFileAsFsPtr == (void*)&rtfFile, "EntryRoute should return its filesystem path pointer correctly");
-    const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
-    log(logFileAsFsConstPtr == (void*)&rtfFile, "EntryRoute should return its filesystem path const pointer correctly");
-
-    // Constructors
-    try {
-      EntryRoute invalidPath(L"non_existing_path/cslib_test_log.txt");
-      log(false, "EntryRoute should throw an error for non-existing path");
-    } catch (const std::filesystem::filesystem_error &e) {
-      log(find_error(e, "No such file or directory"), "EntryRoute should throw an error for non-existing path");
-    }
-    try {
-      EntryRoute emptyPath(L"../", std::filesystem::file_type::regular);
-      log(false, "EntryRoute should recognize between file types at construction");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Path '"), "EntryRoute should throw an error for unexpected file type at construction");
-    }
-  }
-
-
-
-  title("Testing cslib::EntryRoute disk operations"); {
-    TempFile tempFile;
-    TempFolder tempFolder;
-    TempFile dummyFile;
-    TempFolder dummyFolder;
-    TempFile dummyFoldersFile;
-
-    // Move
-    try {
-      dummyFile.move_self_into(tempFile);
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a directory"), "EntryRoute move_self_into should throw for moving into a file");
-    }
-    dummyFile.move_self_into(tempFolder);
-    log(dummyFile == tempFolder / dummyFile.isAt.filename(), "EntryRoute move_self_into should move file into folder");
   }
 }

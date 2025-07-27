@@ -63,11 +63,19 @@ namespace cslib {
 
 
   // Defined beforehand to avoid circular dependencies
-  MACRO to_str(wchar_t _wchar) { return std::string(1, static_cast<char>(_wchar)); }
+  MACRO to_str(wchar_t _wchar) {
+    if (_wchar > 0xFF) // If the character is not representable in a single byte
+      throw std::runtime_error("to_str(wchar_t) cannot convert wide character to narrow string");
+    return std::string(1, static_cast<char>(_wchar));
+  }
   MACRO to_str(const wchar_t *const _cwstr) {
+    // No constexpr version for std::wclen
     size_t len = 0;
-    while (_cwstr[len] != 0) // No constexpr for std::wclen
+    while (_cwstr[len] != 0)
       ++len;
+    for (size_t i = 0; i < len; ++i)
+      if (_cwstr[i] > 0xFF) // If the character is not representable in a single byte
+        throw std::runtime_error("to_str(const wchar_t *const) cannot convert wide string to narrow string");
     return std::string(_cwstr, _cwstr + len);
   }
   MACRO to_str(const wstr_t& _wstr) {return std::string(_wstr.begin(), _wstr.end());}
@@ -554,27 +562,26 @@ namespace cslib {
     void reset() {
       startTime = std::chrono::high_resolution_clock::now();
     }
-    size_t elapsed_ms() {
-      return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-    }
-    size_t elapsed_us() {
-      return std::chrono::duration_cast<std::chrono::microseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
-    }
-    size_t elapsed_ns() {
+    double elapsed_ns() {
       return std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::high_resolution_clock::now() - startTime).count();
+    }
+    double elapsed_ms() {
+      return elapsed_ns() / 1'000'000.0f; // Convert nanoseconds to milliseconds
+    }
+    double elapsed_us() {
+      return elapsed_ns() / 1'000.0f; // Convert nanoseconds to microseconds
     }
   };
 
 
 
-  class EntryRoute { public:
+  class FSEntry { public:
     /*
-      Represents a file or a folder in the filesystem.
-      Provides methods to manage paths, check types, and
-      retrieve metadata like last modified time.
+      Abstract base class for filesystem entries.
+      Represents a path in the filesystem and provides
+      methods to manage it.
     */
     std::filesystem::path isAt; // Covers move and copy semantics
-
 
     // Path management
     wstr_t wstr() const { return isAt.wstring(); }
@@ -585,56 +592,21 @@ namespace cslib {
       auto ftime = std::filesystem::last_write_time(isAt);
       return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
-    EntryRoute parent() const {
-      return EntryRoute(isAt.parent_path(), std::filesystem::file_type::directory);
+    FSEntry parent() const {
+      return FSEntry(isAt.parent_path(), std::filesystem::file_type::directory);
     }
     size_t depth() const {
       /*
         Example:
-          RouteToFile path("/gitstuff/cslib/cslib.h++");
+          FSEntry path("/gitstuff/cslib/cslib.h++");
           size_t depth = path.depth();
           // depth = 3 (because there are 3 directories before the file)
       */
       return separate(isAt.wstring(), std::filesystem::path::preferred_separator).size() - 1;
     }
 
-    // Disk operations
-    void delete_self() {
-      if (!std::filesystem::exists(isAt))
-        throw_up("Path ", isAt, " does not exist");
-      if (type() == std::filesystem::file_type::directory)
-        std::filesystem::remove_all(isAt);
-      else
-        std::filesystem::remove(isAt);
-      if (std::filesystem::exists(isAt))
-        throw_up("Failed to remove path ", isAt);
-      isAt.clear();
-    }
-    void move_self_into(const EntryRoute& _newLocation) {
-      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
-        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      if (_newLocation.type() != std::filesystem::file_type::directory)
-        throw_up("New location ", _newLocation.isAt, " is not a directory");
-      std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
-      isAt = _newLocation.isAt / isAt.filename(); // Update the path
-    }
-    EntryRoute copy_self_into(const EntryRoute& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) const {
-      /*
-        Copy the file or folder to a new location and return a new EntryRoute object.
-        Note:
-          - The new location must not already contain a file or folder with the same name.
-      */
-      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
-        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      if (_newLocation.type() != std::filesystem::file_type::directory)
-        throw_up("New location ", _newLocation.isAt, " is not a directory");
-      std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
-      return EntryRoute(_newLocation.isAt / isAt.filename());
-    }
-
-
-    bool operator==(const EntryRoute& _other) const { return this->isAt == _other.isAt; }
-    bool operator!=(const EntryRoute& _other) const { return !(*this == _other); }
+    bool operator==(const FSEntry& _other) const { return this->isAt == _other.isAt; }
+    bool operator!=(const FSEntry& _other) const { return !(*this == _other); }
     bool operator==(const std::filesystem::path& _other) const { return this->isAt == _other; }
     bool operator!=(const std::filesystem::path& _other) const { return !(*this == _other); }
     // Implicitly converts wide (c-)strings to std::filesystem::path 
@@ -647,39 +619,46 @@ namespace cslib {
     operator std::filesystem::path*() { return &this->isAt; }
     operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // const_cast is safe here
 
-
-    EntryRoute() = default;
-    EntryRoute(const std::filesystem::path& _fsp) : isAt(std::filesystem::canonical(_fsp)) {}
-    EntryRoute(const std::filesystem::path& _fsp, const std::filesystem::file_type _shouldBe) : EntryRoute(_fsp) {
-      if (this->type() != _shouldBe)
-        throw_up("Path ", isAt, " initialized with unexpected file type");
-    }
+    protected:
+      FSEntry() = default;
+      FSEntry(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
+      FSEntry(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
+      if (_type != this->type())
+        throw_up("Path ", _where, " initialized with unexpected file type");
+      }
   };
 
 
 
-  class Folder : public EntryRoute { public:
+  class File; // Forward declaration for Folder class
+  class Folder : public FSEntry { public:
     /*
       Child class of RouteToFile that represents a folder and
       everything in it.
     */
-    std::vector<EntryRoute> content;
+    std::vector<FSEntry> content;
 
     void update() {
       content.clear();
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
-        content.push_back(EntryRoute(entry.path()));
+        content.emplace_back(entry.path());
       content.shrink_to_fit();
     }
 
     Folder() = default;
     Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) {
-      if (_createIfNotExists and !std::filesystem::exists(isAt))
-        std::filesystem::create_directory(isAt);
+      if (_createIfNotExists and !std::filesystem::exists(_where)) {
+        std::filesystem::create_directory(_where);
+        if (!std::filesystem::exists(_where))
+          throw_up("Failed to create folder ", _where);
+      } else
+        if (!std::filesystem::is_directory(_where))
+          throw_up("Path ", _where, " is not a directory");
+      isAt = std::filesystem::canonical(_where);
       update();
     }
 
-    bool has(const EntryRoute& _item) const {
+    bool has(FSEntry& _item) const {
       /*
         Check if the folder contains the given item.
         Example:
@@ -690,11 +669,25 @@ namespace cslib {
       */
       return contains(content, _item);
     }
+    
+    auto move_self_into(Folder& _newLocation) {
+      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
+        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
+      std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
+      isAt = _newLocation.isAt / isAt.filename();
+      _newLocation.update();
+      this->update();
+    }
+    Folder copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) {
+      std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
+      this->update(); // Just in case new folder is subfolder of this
+      return Folder(_newLocation.isAt / isAt.filename());
+    }
   };
 
 
 
-  class File : public EntryRoute { public:
+  class File : public FSEntry { public:
     /*
       Child class of RouteToFile that represents a file.
       Example:
@@ -705,11 +698,13 @@ namespace cslib {
 
     File() = default;
     File(const std::filesystem::path& _where, bool _createIfNotExists = false) {
-      if (_createIfNotExists and !std::filesystem::exists(isAt)) {
-        std::wofstream file(isAt);
+      if (_createIfNotExists and !std::filesystem::exists(_where)) {
+        std::wofstream file(to_str(_where.wstring()));
         if (!file.is_open())
-          throw_up("Failed to create file ", isAt);
+          throw_up("Failed to create file '", _where.wstring(), "'");
       }
+      if (!std::filesystem::is_regular_file(_where))
+        throw_up("Path ", _where, " is not a regular file");
       isAt = std::filesystem::canonical(_where);
     }
 
@@ -725,11 +720,6 @@ namespace cslib {
       return wstr_t((std::istreambuf_iterator<wchar_t>(file)), std::istreambuf_iterator<wchar_t>());
     }
     void edit(const auto& _newContent, std::ios_base::openmode _openMode = std::ios::out) const {
-      /*
-        Write the given content to the file.
-        Note:
-          - No error-handling for files larger than available memory
-      */
       std::wofstream file(isAt, _openMode);
       if (!file.is_open() or !file.good())
         throw_up("Failed to access file ", isAt);
@@ -737,7 +727,39 @@ namespace cslib {
     }
     wstr_t extension() const {return isAt.extension().wstring();}
     size_t bytes() const {return std::filesystem::file_size(isAt);}
+
+    void move_self_into(Folder& _newLocation) {
+      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
+        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
+      std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
+      isAt = _newLocation.isAt / isAt.filename(); // Update the path
+      _newLocation.update();
+    }
+    File copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::none) const {
+      std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
+      _newLocation.update();
+      return File(_newLocation.isAt / isAt.filename());
+    }
   };
+
+
+
+  MACRO RANDOM_ENTRY_NAME_LEN = 64;
+  wstr_t scramble_filename() {
+    /*
+      Generate a random filename with a length of `RANDOM_ENTRY_NAME_LEN`
+      characters. The filename consists of uppercase and lowercase
+      letters and digits.
+    */
+    wstr_t randomName;
+    for ([[maybe_unused]] auto _ : range(RANDOM_ENTRY_NAME_LEN))
+      switch (roll_dice(0, 2)) {
+        case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
+        case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
+        case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
+      }
+    return randomName;
+  }
 
 
 
@@ -754,14 +776,11 @@ namespace cslib {
     bool keep = false;
 
     TempFile() {
-      wstr_t randomName;
-      for ([[maybe_unused]] auto _ : range(64))
-        switch (roll_dice(0, 2)) {
-          case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
-          case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
-          case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
-        }
-      wstr_t tempFileName = L"cslibTempFile_" + randomName + L".tmp";
+      wstr_t tempFileName = L"cslibTempFile_" + scramble_filename() + L".tmp";
+      // Ensure the file does not already exist
+      while (std::filesystem::exists(std::filesystem::temp_directory_path() / tempFileName))
+        tempFileName = L"cslibTempFile_" + scramble_filename() + L".tmp";
+
       isAt = File(std::filesystem::temp_directory_path() / tempFileName, true).isAt; // Create the file
     }
     TempFile(const std::filesystem::path& _createAs) {
@@ -799,14 +818,9 @@ namespace cslib {
     bool keep = false;
 
     TempFolder() {
-      wstr_t randomName;
-      for ([[maybe_unused]] auto _ : range(64))
-        switch (roll_dice(0, 2)) {
-          case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
-          case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
-          case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
-        }
-      wstr_t tempFolderName = L"cslibTempFolder_" + randomName;
+      wstr_t tempFolderName = L"cslibTempFolder_" + scramble_filename();
+      while (std::filesystem::exists(std::filesystem::temp_directory_path() / tempFolderName))
+        tempFolderName = L"cslibTempFolder_" + scramble_filename();
       isAt = Folder(std::filesystem::temp_directory_path() / tempFolderName, true).isAt;
     }
     TempFolder(const std::filesystem::path& _createAs) {

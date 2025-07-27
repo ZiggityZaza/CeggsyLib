@@ -30,6 +30,7 @@ bool find_error(const std::runtime_error& e, std::string_view lookFor) {
 Benchmark bm;
 
 
+
 int main() {
   title("Testing cslib::to_str"); {
     log(to_str(L'A') == "A", "to_str(wchar_t)");
@@ -520,5 +521,77 @@ int main() {
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
     elapsed = bm1.elapsed_ms();
     log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
+  }
+
+
+
+  title("Testing cslib::FSEntry"); {
+    const TempFile FILE;
+
+    // Testing ability to read file properties
+    FSEntry rtfFile(FILE.wstr());
+    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "FSEntry should have the correct last modified time");
+    log(rtfFile.type() == std::filesystem::file_type::regular, "FSEntry should create a regular file");
+
+    // Depth and position checks
+    FSEntry rofFileParent(FILE.parent());
+    log(rofFileParent.type() == std::filesystem::file_type::directory, "FSEntry should create a directory for the parent path");
+    log(rofFileParent == std::filesystem::temp_directory_path(), "FSEntry parent path should be the temp directory path");
+    #ifdef _WIN32
+      const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
+    #else
+      const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
+    #endif
+    log(rtfFile.depth() == EXPECTED_DEPTH, "FSEntry should have the correct depth for temp file");
+
+    // Equality and inequality checks
+    FSEntry rtoFileCopy(rtfFile);
+    log(rtoFileCopy == rtfFile, "FSEntry == operator should work for same file paths");
+    log(rtoFileCopy != FSEntry("../"), "FSEntry != operator should work for different file paths");
+    log(rtoFileCopy == FILE.wstr().data(), "FSEntry == operator should work for strings");
+    log(rtoFileCopy != (FILE.wstr() + L"???"), "FSEntry != operator should work for different strings");
+
+    // Conversions to other types
+    log(std::wstring(rtfFile) == FILE.wstr(), "FSEntry should convert to wstring correctly");
+    std::filesystem::path& logFileAsFsRef = rtfFile;
+    log(logFileAsFsRef == rtfFile, "FSEntry should convert to filesystem path reference correctly");
+    const std::filesystem::path& logFileAsFsConstRef = rtfFile;
+    log(logFileAsFsConstRef == rtfFile, "FSEntry should convert to filesystem path const reference correctly");
+    std::filesystem::path logFileAsFsCopy = rtfFile;
+    log(logFileAsFsCopy == rtfFile, "FSEntry should convert to filesystem path copy correctly");
+    std::filesystem::path* logFileAsFsPtr = rtfFile;
+    log(logFileAsFsPtr == (void*)&rtfFile, "FSEntry should return its filesystem path pointer correctly");
+    const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
+    log(logFileAsFsConstPtr == (void*)&rtfFile, "FSEntry should return its filesystem path const pointer correctly");
+
+    // Constructors
+    try {
+      FSEntry invalidPath(L"non_existing_path/cslib_test_log.txt");
+      log(false, "FSEntry should throw an error for non-existing path");
+    } catch (const std::filesystem::filesystem_error &e) {
+      log(find_error(e, "No such file or directory"), "FSEntry should throw an error for non-existing path");
+    }
+    try {
+      FSEntry emptyPath(L"../", std::filesystem::file_type::regular);
+      log(false, "FSEntry should recognize between file types at construction");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "initialized with unexpected file type"), "FSEntry should throw an error for unexpected file type at construction");
+    }
+  }
+
+
+
+  title("Testing cslib::Folder (child class of cslib::FSEntry)"); {
+    TempFolder tempFolder; // Create a temporary folder
+    TempFile dummyFile;
+    
+    // Creation
+    try {
+      Folder nonExistingFolder(L"its_unlikely_that_there_is_a_folder_with_this_name");
+      log(false, "Folder constructor should throw an error for non-existing folder");
+    } catch (const std::filesystem::filesystem_error &e) {
+      log(find_error(e, "No such file or directory"), "Folder constructor should throw an error for non-existing folder");
+    }
+
   }
 }

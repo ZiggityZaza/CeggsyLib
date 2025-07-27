@@ -62,6 +62,7 @@ namespace cslib {
   #define FIXED inline constexpr // Explicit alternative for MACRO
 
 
+
   // Defined beforehand to avoid circular dependencies
   MACRO to_str(wchar_t _wchar) {
     if (_wchar > 0xFF) // If the character is not representable in a single byte
@@ -89,7 +90,7 @@ namespace cslib {
   MACRO to_wstr(char _char) { return std::wstring(1, static_cast<wchar_t>(_char)); }
   MACRO to_wstr(const char *const _cstr) {return std::wstring(_cstr, _cstr + std::strlen(_cstr));}
   MACRO to_wstr(const str_t& _str) {return std::wstring(_str.begin(), _str.end());}
-  MACRO to_wstr(const strv_t& _strv) {return std::wstring(_strv.begin(), _strv.end());}
+  MACRO to_wstr(strv_t _strv) {return std::wstring(_strv.begin(), _strv.end());}
   wstr_t to_wstr(const auto& _anything) {
     std::wostringstream woss;
     woss << _anything;
@@ -617,34 +618,26 @@ namespace cslib {
     operator std::filesystem::path&() { return this->isAt; }
     operator const std::filesystem::path&() const { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
-    operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // const_cast is safe here
+    operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // casted immutable
 
-    protected:
-      FSEntry() = default;
-      FSEntry(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
-      FSEntry(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
-      if (_type != this->type())
-        throw_up("Path ", _where, " initialized with unexpected file type");
-      }
+    FSEntry() = default;
+    FSEntry(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
+    FSEntry(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
+    if (_type != this->type())
+      throw_up("Path ", _where, " initialized with unexpected file type");
+    }
   };
 
 
 
-  class File; // Forward declaration for Folder class
   class Folder : public FSEntry { public:
     /*
-      Child class of RouteToFile that represents a folder and
-      everything in it.
+      Child class of FSEntry that represents a folder.
+      Example:
+        Folder folder("/gitstuff/cslib");
+        if (folder.has(FSEntry("/gitstuff/cslib/cslib.h++")))
+          std::wcout << "Folder contains the file\n";
     */
-    std::vector<FSEntry> content;
-
-    void update() {
-      content.clear();
-      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
-        content.emplace_back(entry.path());
-      content.shrink_to_fit();
-    }
-
     Folder() = default;
     Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) {
       if (_createIfNotExists and !std::filesystem::exists(_where)) {
@@ -655,32 +648,26 @@ namespace cslib {
         if (!std::filesystem::is_directory(_where))
           throw_up("Path ", _where, " is not a directory");
       isAt = std::filesystem::canonical(_where);
-      update();
     }
 
-    bool has(FSEntry& _item) const {
-      /*
-        Check if the folder contains the given item.
-        Example:
-          Folder folder("/gitstuff/cslib");
-          RouteToFile item("/gitstuff/cslib/cslib.h++");
-          bool exists = folder.has(item);
-          // exists = true
-      */
-      return contains(content, _item);
+    std::vector<FSEntry> list() const {
+      std::vector<FSEntry> entries;
+      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
+        entries.emplace_back(entry.path());
+      return entries;
+    }
+    bool has(const FSEntry& _item) const {
+      return contains(list(), _item);
     }
     
-    auto move_self_into(Folder& _newLocation) {
+    void move_self_into(Folder& _newLocation) {
       if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
         throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
       isAt = _newLocation.isAt / isAt.filename();
-      _newLocation.update();
-      this->update();
     }
     Folder copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) {
       std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
-      this->update(); // Just in case new folder is subfolder of this
       return Folder(_newLocation.isAt / isAt.filename());
     }
   };
@@ -733,11 +720,9 @@ namespace cslib {
         throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
       isAt = _newLocation.isAt / isAt.filename(); // Update the path
-      _newLocation.update();
     }
     File copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::none) const {
       std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
-      _newLocation.update();
       return File(_newLocation.isAt / isAt.filename());
     }
   };
@@ -799,8 +784,9 @@ namespace cslib {
       at runtime. The file is created in a static deque to
       ensure that it is not deleted until the program exits.
       Note:
-        This function is not thread-safe and should only be
-        called from the main thread.
+        Using deque cuz vector reallocation causes the
+        file to be deleted and/or its memory address to
+        change, which would lead to undefined behavior.
     */
     static std::deque<TempFile> runtimeFiles;
     runtimeFiles.emplace_back();
@@ -844,8 +830,8 @@ namespace cslib {
       at runtime. The folder is created in a static deque to
       ensure that it is not deleted until the program exits.
       Note:
-        This function is not thread-safe and should only be
-        called from the main thread.
+        Same as make_runtime_file, using deque to avoid
+        reallocation issues.
     */
     static std::deque<TempFolder> runtimeFolders;
     runtimeFolders.emplace_back();

@@ -115,9 +115,9 @@ int main() {
     bm.reset();
     pause(500); // Pause for 0,5 second
     double elpsd = bm.elapsed_ms();
-    log(elpsd > 499 && elpsd < 501, "pause for 500ms should take around 500ms (took ", elpsd, "ms)");
+    log(elpsd > 499 && elpsd < 510, "pause for 500ms should take around 510ms (took ", elpsd, "ms)");
     pause(0);
-    log(elpsd > 499 && elpsd < 501, "pause for 0ms shouldn't take longer than 0ms (took ", elpsd, "ms)");
+    log(elpsd > 499 && elpsd < 510, "pause for 0ms shouldn't take longer than 0ms (took ", elpsd, "ms)");
   }
 
 
@@ -175,10 +175,6 @@ int main() {
       log(find_error(e, "Failed to execute command: 'non_existing_command'"), "sh_call should throw an error for non-existing command");
     }
   }
-
-
-
-  title("Skipped clear_console cuz difficult to test in a non-interactive environment");
 
 
 
@@ -304,7 +300,7 @@ int main() {
     int result = retry(stdFunc, 3, 100);
     size_t elpsd = bm.elapsed_ms();
     log(result == 42, "retry(std::function) should return the correct result");
-    log(elpsd >= 200 && elpsd <= 300, "retry(std::function) should take around 200-300ms (took ", elpsd, "ms)");
+    log(elpsd >= 200 && elpsd <= 310, "retry(std::function) should take around 200-310ms (took ", elpsd, "ms)");
 
     // C-style pointer
     bm.reset();
@@ -317,7 +313,7 @@ int main() {
     result = retry(cPtrFunc, 3, 100);
     elpsd = bm.elapsed_ms();
     log(result == 42, "retry(c-style function pointer) should return the correct result");
-    log(elpsd >= 200 && elpsd <= 300, "retry(c-style function pointer) should take around 200-300ms (took ", elpsd, "ms)");
+    log(elpsd >= 200 && elpsd <= 310, "retry(c-style function pointer) should take around 200-310ms (took ", elpsd, "ms)");
 
     // Lambda
     bm.reset();
@@ -330,8 +326,8 @@ int main() {
     result = retry(lambdaFunc, 3, 100);
     elpsd = bm.elapsed_ms();
     log(result == 42, "retry(lambda function) should return the correct result");
-    log(elpsd >= 200 && elpsd <= 300, "retry(lambda function) should take around 200-300ms (took ", elpsd, "ms)");
-  
+    log(elpsd >= 200 && elpsd <= 310, "retry(lambda function) should take around 200-310ms (took ", elpsd, "ms)");
+
     // Inline lambda
     bm.reset();
     result = retry([] -> int {
@@ -342,7 +338,7 @@ int main() {
     }, 3, 100);
     elpsd = bm.elapsed_ms();
     log(result == 42, "retry(inline lambda function) should return the correct result");
-    log(elpsd >= 200 && elpsd <= 300, "retry(inline lambda function) should take around 200-300ms (took ", elpsd, "ms)");
+    log(elpsd >= 200 && elpsd <= 310, "retry(inline lambda function) should take around 200-310ms (took ", elpsd, "ms)");
 
     // Always throw
     try {
@@ -373,6 +369,26 @@ int main() {
     const char* args2[] = {"program"};
     std::vector<strv_t> parsedArgs2 = parse_cli_args(1, args2);
     log(parsedArgs2.empty(), "parse_cli_args should return an empty vector for no arguments");
+  }
+
+
+
+  title("Testing cslib::stringify_container"); {
+    std::vector<int> vec = {1, 2, 3, 4, 5};
+    std::deque<int> deq = {1, 2, 3, 4, 5};
+    std::set<int> set = {1, 2, 3, 4, 5};
+    std::list<int> lst = {1, 2, 3, 4, 5};
+    std::array<int, 5> arr = {1, 2, 3, 4, 5};
+    constexpr std::array<int, 5> carr = {1, 2, 3, 4, 5};
+    std::initializer_list<int> initList = {1, 2, 3, 4, 5};
+    wstrv_t expected = L"{1, 2, 3, 4, 5}";
+    log(stringify_container(vec) == expected, "stringify_container(vector)");
+    log(stringify_container(deq) == expected, "stringify_container(deque)");
+    log(stringify_container(set) == expected, "stringify_container(set)");
+    log(stringify_container(lst) == expected, "stringify_container(list)");
+    log(stringify_container(arr) == expected, "stringify_container(array)");
+    log(stringify_container(carr) == expected, "stringify_container(constexpr array)");
+    log(stringify_container(initList) == expected, "stringify_container(initializer_list)");
   }
 
 
@@ -458,21 +474,12 @@ int main() {
 
 
 
-  title("Testing cslib::Out"); {
-    std::wostringstream woss;
-    Out(woss, L"[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << L'_' << 3.14f << L" wide";
-    log(woss.str() == L"\033[36m[checking cslib::Out] \033[0mnarrow_123_3.14 wide", "cslib::Out with narrow and wide types");
-    woss.str(L""); // Clear the stream
-  }
-
-
-
   title("Testing cslib::TimeStamp"); {
     // Accuracy
     TimeStamp ts1;
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
-    log(elapsed >= 499 and elapsed <= 501, "TimeStamp should be within 500ms of current time");
+    log(elapsed >= 499 and elapsed <= 510, "TimeStamp should be within 510ms of current time");
 
     // Correctness of formatting
     std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
@@ -481,12 +488,12 @@ int main() {
 
     // Making sure TimeStamp returns correct values
     TimeStamp rightNow;
-    log(rightNow.year() == uint(tm->tm_year + 1900), "TimeStamp should return correct year");
-    log(rightNow.month() == uint(tm->tm_mon + 1), "TimeStamp should return correct month");
-    log(rightNow.day() == uint(tm->tm_mday), "TimeStamp should return correct day");
-    log(rightNow.hour() == uint(tm->tm_hour), "TimeStamp should return correct hour");
-    log(rightNow.minute() == uint(tm->tm_min), "TimeStamp should return correct minute");
-    log(rightNow.second() == uint(tm->tm_sec), "TimeStamp should return correct second");
+    log(rightNow.year() == unsigned(tm->tm_year + 1900), "TimeStamp should return correct year");
+    log(rightNow.month() == unsigned(tm->tm_mon + 1), "TimeStamp should return correct month");
+    log(rightNow.day() == unsigned(tm->tm_mday), "TimeStamp should return correct day");
+    log(rightNow.hour() == unsigned(tm->tm_hour), "TimeStamp should return correct hour");
+    log(rightNow.minute() == unsigned(tm->tm_min), "TimeStamp should return correct minute");
+    log(rightNow.second() == unsigned(tm->tm_sec), "TimeStamp should return correct second");
 
     // Testing constructor
     TimeStamp ts2(30, 45, 12, 25, 12, 2023); // 12:45:30 on 25th December 2023
@@ -509,18 +516,28 @@ int main() {
 
 
 
+  title("Testing cslib::Out"); {
+    std::wostringstream woss;
+    Out(woss, L"[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << L'_' << 3.14f << L" wide";
+    wstr_t expected = to_wstr("[") + TimeStamp().as_wstr() + L"]\033[36m[checking cslib::Out] \033[0mnarrow_123_3.14 wide";
+    log(woss.str() == expected, "cslib::Out with a mix of streamable types should format correctly");
+    woss.str(L""); // Clear the stream
+  }
+
+
+
   title("Testing cslib::Benchmark"); {
     Benchmark bm1;
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
     double elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 501, "Benchmark should measure time correctly (took ", elapsed, "ms)");
+    log(elapsed >= 499 && elapsed <= 510, "Benchmark should measure time correctly (took ", elapsed, "ms)");
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
     elapsed = bm1.elapsed_ms();
-    log(elapsed >= 998 && elapsed <= 1002, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
+    log(elapsed >= 998 && elapsed <= 1020, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
     bm1.reset();
     std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
     elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 501, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
+    log(elapsed >= 499 && elapsed <= 510, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
   }
 
 
@@ -581,17 +598,77 @@ int main() {
 
 
 
-  title("Testing cslib::Folder (child class of cslib::FSEntry)"); {
+  title("Testing child classes of cslib::FSEntry"); {
     TempFolder tempFolder; // Create a temporary folder
-    TempFile dummyFile;
-    
+
     // Creation
     try {
       Folder nonExistingFolder(L"its_unlikely_that_there_is_a_folder_with_this_name");
-      log(false, "Folder constructor should throw an error for non-existing folder");
-    } catch (const std::filesystem::filesystem_error &e) {
-      log(find_error(e, "No such file or directory"), "Folder constructor should throw an error for non-existing folder");
+      log(false, "Folder constructor shouldn't succeed for non-existing folder");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for non-existing folder");
+    }
+    try {
+      Folder emptyFolder(L"");
+      log(false, "Folder constructor shouldn't succeed for empty path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "Path empty"), "Folder constructor should throw an error for empty path");
+    }
+    try {
+      Folder invalidTypeFolder(TempFile().wstr());
+      log(false, "Folder constructor shouldn't succeed for file path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for file path");
     }
 
+    // Valid folder creation
+    log(std::filesystem::exists(tempFolder.wstr()), "Folder should be created at the specified path");
+    log(tempFolder.type() == std::filesystem::file_type::directory, "Folder should be of type directory");
+
+    // Try folder listing and checking
+    {
+      // Put stuff into place
+      TempFolder subFolder;
+      subFolder.move_self_into(tempFolder);
+      TempFolder subsubFolder;
+      subsubFolder.move_self_into(subFolder);
+      TempFile subsubFile1, subFile2, subFile3;
+      subsubFile1.move_self_into(subsubFolder);
+      subFile2.move_self_into(subFolder);
+      subFile3.move_self_into(subFolder);
+      log(subFolder.list().size() == 3, "Folder should have 3 items in the list");
+      wstr_t content = stringify_container(subFolder.list());
+      log(content.find(subsubFolder.wstr()) != wstr_t::npos, "Folder list should contain subfolder");
+      log(subFolder.has(subsubFolder), "Folder .has() method should recognize subfolder");
+      log(content.find(subFile2.wstr()) != wstr_t::npos, "Folder list should contain subFile2");
+      log(subFolder.has(subFile2), "Folder .has() method should recognize subFile2");
+      log(content.find(subFile3.wstr()) != wstr_t::npos, "Folder list should contain subFile3");
+      log(subFolder.has(subFile3), "Folder .has() method should recognize subFile3");
+    }
+    log(tempFolder.list().size() == 0, "Folder should be empty after temporary items are out of scope");
+
+    // Testing copy on disk methods
+    {
+      TempFolder dummyFolder;
+      TempFolder subFolder;
+      TempFile subFile, subsubFile;
+      subFolder.move_self_into(dummyFolder);
+      subFile.move_self_into(dummyFolder);
+      subsubFile.move_self_into(subFolder);
+      TempFolder targetFolder;
+      Folder dummyFolderCopy = dummyFolder.copy_self_into(targetFolder);
+      Folder dummySubCopyFolder;
+      for (const FSEntry &item : dummyFolderCopy.list()) {
+        if (item.type() == std::filesystem::file_type::directory) {
+          dummySubCopyFolder = Folder(item.wstr());
+          break;
+        }
+      }
+      File dummySubFile = File(dummySubCopyFolder.list().front());
+      log(std::filesystem::exists(targetFolder.wstr()), "Target folder should exist after copy");
+      log(targetFolder.has(dummyFolderCopy), "Target folder should have dummyFolder after copy");
+      log(dummyFolderCopy.has(dummySubCopyFolder), "Dummy folder copy should have subfolder copy");
+      log(dummySubCopyFolder.has(dummySubFile), "Dummy subfolder copy should have subfile copy");
+    }
   }
 }

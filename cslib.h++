@@ -33,6 +33,11 @@
 #include <list>
 #include <map>
 #include <set>
+#ifdef _WIN32
+  #include <windows.h>
+  #include <io.h>
+  #include <fcntl.h>
+#endif
 
 
 #pragma once
@@ -162,16 +167,6 @@ namespace cslib {
 
 
 
-  void clear_console() {
-    #ifdef _WIN32
-      sh_call("cls");
-    #else
-      sh_call("clear");
-    #endif
-  }
-
-
-
   MACRO contains(const auto& _lookIn, const auto& _lookFor) {
     /*
       does `container` contain `key`
@@ -287,6 +282,25 @@ namespace cslib {
 
 
 
+  wstr_t stringify_container(const auto& _vec) {
+    /*
+      Convert a vector to a string representation.
+      Example:
+        cslib::stringify_container({1, 2, 3}); // "{1, 2, 3}"
+    */
+    wstr_t result = L"{";
+    for (const auto& item : _vec)
+      result += to_wstr(item) + L", ";
+    if (result.length() > 1) { // If there are items
+      result.pop_back(); // Remove the last comma
+      result.pop_back(); // Remove the last space
+    }
+    result += L"}";
+    return result;
+  }
+
+
+
   FIXED wstrv_t TRIM_WITH = L"...";
   MACRO shorten_end(wstrv_t _wstrsv, size_t _maxLength) {
     /*
@@ -365,7 +379,7 @@ namespace cslib {
     */
     if (!_winStream or !_winStream.good())
       throw_up("std::wistream is not good or in a bad state");
-    const std::wstreampos previousPos = _winStream.tellg();
+    std::wstreampos previousPos = _winStream.tellg();
     std::wstring result{std::istreambuf_iterator<wchar_t>(_winStream), std::istreambuf_iterator<wchar_t>()};
     _winStream.seekg(previousPos);
     return result;
@@ -377,33 +391,39 @@ namespace cslib {
 
 
   // Get the first available UTF-8 locale
-  FIXED std::array<strv_t, 6> POSSIBLE_UTF8_LOCALES = {
-    "en_US.UTF-8",
-    "en_US.utf8",
-    "C.UTF-8",
-    "POSIX.UTF-8",
-    "C.utf8",
-    "POSIX.utf8"
-  };
   SHARED bool isWcharIOEnabled = false;
   void enable_wchar_io() {
-    /*
-      Set all io-streaming globally to UTF-8 encoding
-    */
-
     if (isWcharIOEnabled) {
-      std::wcout << L"[🧌] Console already initialized with UTF-8 encoding.\n";
+      std::wcout << L"[👨‍❤️‍👨] Console already initialized with UTF-8 encoding.\n";
       return;
     }
 
+    #ifdef _WIN32
+      // Set Windows console to UTF-8 for wide IO
+      SetConsoleOutputCP(CP_UTF8);
+      SetConsoleCP(CP_UTF8);
+      _setmode(_fileno(stdout), _O_U8TEXT);
+      _setmode(_fileno(stdin), _O_U8TEXT);
+    #endif
+
     std::locale utf8Locale;
-    for (strv_t locale_name : POSSIBLE_UTF8_LOCALES) {
+    const std::vector POSSIBLE_UTF8_LOCALES = {
+      "",
+      "C",
+      "en_US.UTF-8",
+      "en_US.utf8",
+      "C.UTF-8",
+      "POSIX.UTF-8",
+      "C.utf8",
+      "POSIX.utf8"
+    };
+    for (const char* name : POSSIBLE_UTF8_LOCALES) {
       try {
-        utf8Locale = std::locale(locale_name.data());
-      }
-      catch (const std::runtime_error&) {}
-      // Ignore the exception, try the next locale
+        utf8Locale = std::locale(name);
+        break;
+      } catch (...) {}
     }
+
     if (utf8Locale.name().empty())
       throw_up("Failed to find a suitable UTF-8 locale. Ensure your system supports UTF-8 locales");
 
@@ -413,59 +433,9 @@ namespace cslib {
     std::wclog.imbue(utf8Locale);
     std::wcerr.imbue(utf8Locale);
 
-    std::wcout << L"[🧌] Console initialized with UTF-8 encoding.\n";
+    std::wcout << L"[👨‍❤️‍👨] Console initialized with UTF-8 encoding (" << utf8Locale.name().data() << L").\n";
     isWcharIOEnabled = true;
   }
-
-
-
-  MACRO Bold = L"\033[1m";
-  MACRO Underline = L"\033[4m";
-  MACRO Italic = L"\033[3m";
-  MACRO Reverse = L"\033[7m";
-  MACRO Hidden = L"\033[8m";
-  MACRO Black = L"\033[30m";
-  MACRO Red = L"\033[31m";
-  MACRO Green = L"\033[32m";
-  MACRO Yellow = L"\033[33m";
-  MACRO Blue = L"\033[34m";
-  MACRO Magenta = L"\033[35m";
-  MACRO Cyan = L"\033[36m";
-  MACRO White = L"\033[37m";
-  MACRO Reset = L"\033[0m";
-  class Out { public:
-    /*
-      Print to console with color and optionally into an existing file.
-      Usage:
-        cslib::Out error("Error: ", cslib::Out::Color::RED);
-        error << "Something went wrong";
-    */
-    std::wostream& outTo;
-    wstr_t prefix;
-    Out() = default;
-    Out(std::wostream& _outTo) : outTo(_outTo) {
-      if (!isWcharIOEnabled)
-        enable_wchar_io();
-      prefix = L"";
-    }
-    Out(std::wostream& _outTo, wstrv_t _prefsv = L"", wstrv_t _color = L"") : outTo(_outTo) {
-      std::wostringstream prefixStream;
-      prefixStream << _color << _prefsv;
-      if (!_prefsv.empty())
-        prefixStream << " ";
-      if (!_color.empty())
-        prefixStream << Reset;
-      prefix = prefixStream.str();
-    }
-    std::wostream& operator<<(const auto& _msg) {
-      outTo << prefix << _msg;
-      return outTo;
-    }
-    std::wostream& operator<<(auto&& _msg) {
-      outTo << prefix << std::forward<decltype(_msg)>(_msg);
-      return outTo;
-    }
-  };
 
 
 
@@ -548,6 +518,54 @@ namespace cslib {
 
 
 
+  MACRO Bold = L"\033[1m";
+  MACRO Underline = L"\033[4m";
+  MACRO Italic = L"\033[3m";
+  MACRO Reverse = L"\033[7m";
+  MACRO Hidden = L"\033[8m";
+  MACRO Black = L"\033[30m";
+  MACRO Red = L"\033[31m";
+  MACRO Green = L"\033[32m";
+  MACRO Yellow = L"\033[33m";
+  MACRO Blue = L"\033[34m";
+  MACRO Magenta = L"\033[35m";
+  MACRO Cyan = L"\033[36m";
+  MACRO White = L"\033[37m";
+  MACRO Reset = L"\033[0m";
+  class Out { public:
+    /*
+      Print to console with color and optionally into an existing file.
+      Usage:
+        cslib::Out error("Error: ", cslib::Out::Color::RED);
+        error << "Something went wrong";
+    */
+    std::wostream& outTo;
+    wstr_t prefix;
+    Out() = default;
+    Out(std::wostream& _outTo) : outTo(_outTo) {
+      if (!isWcharIOEnabled)
+        enable_wchar_io();
+      prefix = L"";
+    }
+    Out(std::wostream& _outTo, wstrv_t _prefsv = L"", wstrv_t _color = L"") : outTo(_outTo) {
+      std::wostringstream prefixStream;
+      prefixStream << _color << _prefsv;
+      if (!_prefsv.empty())
+        prefixStream << " ";
+      if (!_color.empty())
+        prefixStream << Reset;
+      prefix = prefixStream.str();
+    }
+    std::wostream& operator<<(const auto& _msg) {
+      return outTo << '[' << TimeStamp().as_wstr() << ']' << prefix << _msg;
+    }
+    std::wostream& operator<<(auto&& _msg) {
+      return outTo << '[' << TimeStamp().as_wstr() << ']' << prefix << std::forward<decltype(_msg)>(_msg);
+    }
+  };
+
+
+
   class Benchmark { public:
     /*
       Measures the time taken by a function or a block of code.
@@ -619,6 +637,9 @@ namespace cslib {
     operator const std::filesystem::path&() const { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
     operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // casted immutable
+    friend std::wostream& operator<<(std::wostream& _out, const FSEntry& _entry) {
+      return _out << _entry.isAt.wstring();
+    }
 
     FSEntry() = default;
     FSEntry(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
@@ -640,6 +661,8 @@ namespace cslib {
     */
     Folder() = default;
     Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) {
+      if (_where.empty())
+        throw_up("Path empty");
       if (_createIfNotExists and !std::filesystem::exists(_where)) {
         std::filesystem::create_directory(_where);
         if (!std::filesystem::exists(_where))
@@ -659,8 +682,13 @@ namespace cslib {
     bool has(const FSEntry& _item) const {
       return contains(list(), _item);
     }
-    
+
     void move_self_into(Folder& _newLocation) {
+      /*
+        Important note:
+          Upon moving, subfolders and files objects
+          will still point to the old location.
+      */
       if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
         throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
@@ -685,6 +713,8 @@ namespace cslib {
 
     File() = default;
     File(const std::filesystem::path& _where, bool _createIfNotExists = false) {
+      if (_where.empty())
+        throw_up("Path empty");
       if (_createIfNotExists and !std::filesystem::exists(_where)) {
         std::wofstream file(to_str(_where.wstring()));
         if (!file.is_open())
@@ -729,21 +759,21 @@ namespace cslib {
 
 
 
-  MACRO RANDOM_ENTRY_NAME_LEN = 64;
+  MACRO RANDOM_ENTRY_NAME_LEN = 2; // n^59 possible combinations
   wstr_t scramble_filename() {
     /*
       Generate a random filename with a length of `RANDOM_ENTRY_NAME_LEN`
       characters. The filename consists of uppercase and lowercase
       letters and digits.
     */
-    wstr_t randomName;
+    std::wostringstream randomName;
     for ([[maybe_unused]] auto _ : range(RANDOM_ENTRY_NAME_LEN))
       switch (roll_dice(0, 2)) {
-        case 0: randomName += wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
-        case 1: randomName += wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
-        case 2: randomName += wchar_t(roll_dice('0', '9')); break; // Digit
+        case 0: randomName << wchar_t(roll_dice('A', 'Z')); break; // Uppercase letter
+        case 1: randomName << wchar_t(roll_dice('a', 'z')); break; // Lowercase letter
+        case 2: randomName << wchar_t(roll_dice('0', '9')); break; // Digit
       }
-    return randomName;
+    return randomName.str();
   }
 
 
@@ -800,6 +830,9 @@ namespace cslib {
       Create a temporary folder with a random name in the system's
       temporary directory. The name is generated by rolling dice
       to create a random string of letters and digits.
+      Note:
+        Destructor also takes all files in the folder
+        into account and deletes them.
     */
     bool keep = false;
 
@@ -837,4 +870,8 @@ namespace cslib {
     runtimeFolders.emplace_back();
     return runtimeFolders.back();
   }
+
+
+
+  
 } // namespace cslib

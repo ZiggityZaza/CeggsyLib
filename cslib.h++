@@ -556,10 +556,10 @@ namespace cslib {
         prefixStream << Reset;
       prefix = prefixStream.str();
     }
-    std::wostream& operator<<(const auto& _msg) {
+    std::wostream& operator<<(const auto& _msg) const {
       return outTo << '[' << TimeStamp().as_wstr() << ']' << prefix << _msg;
     }
-    std::wostream& operator<<(auto&& _msg) {
+    std::wostream& operator<<(auto&& _msg) const {
       return outTo << '[' << TimeStamp().as_wstr() << ']' << prefix << std::forward<decltype(_msg)>(_msg);
     }
   };
@@ -622,6 +622,20 @@ namespace cslib {
           // depth = 3 (because there are 3 directories before the file)
       */
       return separate(isAt.wstring(), std::filesystem::path::preferred_separator).size() - 1;
+    }
+    void rename_self_to(wstrv_t _newName) {
+      /*
+        Rename the entry to a new name.
+        Note:
+          The new name must not contain any path separators.
+      */
+      if (_newName.find(std::filesystem::path::preferred_separator) != std::wstring::npos)
+        throw_up("New name '", _newName, "' contains path separator");
+      std::filesystem::path newPath = isAt.parent_path() / _newName;
+      if (std::filesystem::exists(newPath))
+        throw_up("Path ", newPath, " already exists");
+      std::filesystem::rename(isAt, newPath);
+      isAt = newPath; // Update the path
     }
 
     bool operator==(const FSEntry& _other) const { return this->isAt == _other.isAt; }
@@ -694,7 +708,7 @@ namespace cslib {
       std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
       isAt = _newLocation.isAt / isAt.filename();
     }
-    Folder copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) {
+    Folder copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) const {
       std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
       return Folder(_newLocation.isAt / isAt.filename());
     }
@@ -873,5 +887,67 @@ namespace cslib {
 
 
 
-  
+  MACRO CONFIG_FILE_NAME = "cslib_configs.ini";
+
+
+  Folder find_appdata_folder() {
+    /*
+      Find the application data folder for the current user.
+      Returns a Folder object pointing to the folder.
+      Note:
+        If the folder does not exist, it will be created.
+    */
+    std::filesystem::path appDataPath;
+    #ifdef _WIN32
+      appDataPath = std::filesystem::path(get_env("APPDATA"));
+    #else
+      appDataPath = std::filesystem::path(get_env("XDG_CONFIG_HOME"));
+      if (appDataPath.empty())
+        appDataPath = std::filesystem::path(get_env("HOME")) / ".config";
+    #endif
+    return Folder(appDataPath, true); // Create if not exists
+  }
+
+
+  std::map<wstr_t, std::map<wstr_t, wstr_t>> get_cslib_configs(Folder& _where) {
+    /*
+      Get the cslib configs file in the given path.
+      If the file does not exist, it will be created..
+    */
+    File file(_where.isAt / CONFIG_FILE_NAME, true); // Create if not exists
+
+    // Parse ini
+    std::map<wstr_t, std::map<wstr_t, wstr_t>> configs;
+    wstr_t content = file.content();
+    wstr_t currentSection;
+    for (const wstr_t& line : separate(content, L'\n')) {
+      wstr_t trimmedLine = line;
+      trimmedLine.erase(0, trimmedLine.find_first_not_of(L" \t")); // Remove leading whitespace
+      trimmedLine.erase(trimmedLine.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
+      if (trimmedLine.empty() or trimmedLine[0] == L';') //
+        continue; // Skip empty lines and comments
+      if (trimmedLine[0] == L'[' and trimmedLine.back() == L']') {
+        // Section header
+        currentSection = trimmedLine.substr(1, trimmedLine.length() - 2);
+        configs.insert({currentSection, {}});
+      } else {
+        // Key-value pair
+        size_t eqPos = trimmedLine.find(L'=');
+        if (eqPos == wstr_t::npos)
+          throw_up("Invalid line in config file: '", line, "'");
+        wstr_t key = trimmedLine.substr(0, eqPos);
+        wstr_t value = trimmedLine.substr(eqPos + 1);
+        key.erase(0, key.find_first_not_of(L" \t")); // Remove leading whitespace
+        key.erase(key.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
+        value.erase(0, value.find_first_not_of(L" \t")); // Remove leading whitespace
+        value.erase(value.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
+        if (currentSection.empty())
+          throw_up("Key-value pair without section in config file: '", line, "'");
+        if (configs.find(currentSection) == configs.end())
+          throw_up("Key-value pair in unknown section in config file: '", line, "'");
+        configs[currentSection].insert({key, value});
+      }
+      return configs;
+    }
+  }
 } // namespace cslib

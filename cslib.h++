@@ -594,11 +594,14 @@ namespace cslib {
 
 
 
-  class FSEntry { public:
+  class Datei { public:
     /*
       Abstract base class for filesystem entries.
       Represents a path in the filesystem and provides
       methods to manage it.
+      Note:
+        Can represent odd types of filesystem entries
+        like symlinks, devices, etc.
     */
     std::filesystem::path isAt; // Covers move and copy semantics
 
@@ -611,15 +614,13 @@ namespace cslib {
       auto ftime = std::filesystem::last_write_time(isAt);
       return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
-    FSEntry parent() const {
-      return FSEntry(isAt.parent_path(), std::filesystem::file_type::directory);
+    Datei parent() const {
+      return Datei(isAt.parent_path(), std::filesystem::file_type::directory);
     }
     size_t depth() const {
       /*
         Example:
-          FSEntry path("/gitstuff/cslib/cslib.h++");
-          size_t depth = path.depth();
-          // depth = 3 (because there are 3 directories before the file)
+          "/gitstuff/cslib/cslib.h++" = 3
       */
       return separate(isAt.wstring(), std::filesystem::path::preferred_separator).size() - 1;
     }
@@ -638,8 +639,8 @@ namespace cslib {
       isAt = newPath; // Update the path
     }
 
-    bool operator==(const FSEntry& _other) const { return this->isAt == _other.isAt; }
-    bool operator!=(const FSEntry& _other) const { return !(*this == _other); }
+    bool operator==(const Datei& _other) const { return this->isAt == _other.isAt; }
+    bool operator!=(const Datei& _other) const { return !(*this == _other); }
     bool operator==(const std::filesystem::path& _other) const { return this->isAt == _other; }
     bool operator!=(const std::filesystem::path& _other) const { return !(*this == _other); }
     // Implicitly converts wide (c-)strings to std::filesystem::path 
@@ -651,13 +652,13 @@ namespace cslib {
     operator const std::filesystem::path&() const { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
     operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // casted immutable
-    friend std::wostream& operator<<(std::wostream& _out, const FSEntry& _entry) {
+    friend std::wostream& operator<<(std::wostream& _out, const Datei& _entry) {
       return _out << _entry.isAt.wstring();
     }
 
-    FSEntry() = default;
-    FSEntry(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
-    FSEntry(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
+    Datei() = default;
+    Datei(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
+    Datei(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
     if (_type != this->type())
       throw_up("Path ", _where, " initialized with unexpected file type");
     }
@@ -665,13 +666,10 @@ namespace cslib {
 
 
 
-  class Folder : public FSEntry { public:
+  class File; // Forward declaration for circular dependency resolution
+  class Folder : public Datei { public:
     /*
-      Child class of FSEntry that represents a folder.
-      Example:
-        Folder folder("/gitstuff/cslib");
-        if (folder.has(FSEntry("/gitstuff/cslib/cslib.h++")))
-          std::wcout << "Folder contains the file\n";
+      Child class of Datei that represents a folder.
     */
     Folder() = default;
     Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) {
@@ -687,13 +685,23 @@ namespace cslib {
       isAt = std::filesystem::canonical(_where);
     }
 
-    std::vector<FSEntry> list() const {
-      std::vector<FSEntry> entries;
-      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
-        entries.emplace_back(entry.path());
+    std::vector<std::variant<File, Folder, Datei>> list() const {
+      /*
+        Get all contents of the folder, including files and subfolders.
+        Returns a vector of File, Folder, and Datei objects.
+      */
+      std::vector<std::variant<File, Folder, Datei>> entries;
+      for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt)) {
+        if (entry.is_directory())
+          entries.emplace_back(Folder(entry.path()));
+        else if (entry.is_regular_file())
+          entries.emplace_back(File(entry.path()));
+        else // Other types (e.g., symlinks, etc.)
+          entries.emplace_back(Datei(entry.path(), entry.status().type()));
+      }
       return entries;
     }
-    bool has(const FSEntry& _item) const {
+    bool has(const Datei& _item) const {
       return contains(list(), _item);
     }
 
@@ -716,12 +724,12 @@ namespace cslib {
 
 
 
-  class File : public FSEntry { public:
+  class File : public Datei { public:
     /*
       Child class of RouteToFile that represents a file.
       Example:
         File file("/gitstuff/cslib/cslib.h++");
-        str_t content = file.content();
+        wstr_t content = file.content();
         // content = "Around 50 years ago, a group of people..."
     */
 
@@ -883,71 +891,5 @@ namespace cslib {
     static std::deque<TempFolder> runtimeFolders;
     runtimeFolders.emplace_back();
     return runtimeFolders.back();
-  }
-
-
-
-  MACRO CONFIG_FILE_NAME = "cslib_configs.ini";
-
-
-  Folder find_appdata_folder() {
-    /*
-      Find the application data folder for the current user.
-      Returns a Folder object pointing to the folder.
-      Note:
-        If the folder does not exist, it will be created.
-    */
-    std::filesystem::path appDataPath;
-    #ifdef _WIN32
-      appDataPath = std::filesystem::path(get_env("APPDATA"));
-    #else
-      appDataPath = std::filesystem::path(get_env("XDG_CONFIG_HOME"));
-      if (appDataPath.empty())
-        appDataPath = std::filesystem::path(get_env("HOME")) / ".config";
-    #endif
-    return Folder(appDataPath, true); // Create if not exists
-  }
-
-
-  std::map<wstr_t, std::map<wstr_t, wstr_t>> get_cslib_configs(Folder& _where) {
-    /*
-      Get the cslib configs file in the given path.
-      If the file does not exist, it will be created..
-    */
-    File file(_where.isAt / CONFIG_FILE_NAME, true); // Create if not exists
-
-    // Parse ini
-    std::map<wstr_t, std::map<wstr_t, wstr_t>> configs;
-    wstr_t content = file.content();
-    wstr_t currentSection;
-    for (const wstr_t& line : separate(content, L'\n')) {
-      wstr_t trimmedLine = line;
-      trimmedLine.erase(0, trimmedLine.find_first_not_of(L" \t")); // Remove leading whitespace
-      trimmedLine.erase(trimmedLine.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
-      if (trimmedLine.empty() or trimmedLine[0] == L';') //
-        continue; // Skip empty lines and comments
-      if (trimmedLine[0] == L'[' and trimmedLine.back() == L']') {
-        // Section header
-        currentSection = trimmedLine.substr(1, trimmedLine.length() - 2);
-        configs.insert({currentSection, {}});
-      } else {
-        // Key-value pair
-        size_t eqPos = trimmedLine.find(L'=');
-        if (eqPos == wstr_t::npos)
-          throw_up("Invalid line in config file: '", line, "'");
-        wstr_t key = trimmedLine.substr(0, eqPos);
-        wstr_t value = trimmedLine.substr(eqPos + 1);
-        key.erase(0, key.find_first_not_of(L" \t")); // Remove leading whitespace
-        key.erase(key.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
-        value.erase(0, value.find_first_not_of(L" \t")); // Remove leading whitespace
-        value.erase(value.find_last_not_of(L" \t") + 1); // Remove trailing whitespace
-        if (currentSection.empty())
-          throw_up("Key-value pair without section in config file: '", line, "'");
-        if (configs.find(currentSection) == configs.end())
-          throw_up("Key-value pair in unknown section in config file: '", line, "'");
-        configs[currentSection].insert({key, value});
-      }
-      return configs;
-    }
   }
 } // namespace cslib

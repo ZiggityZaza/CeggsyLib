@@ -542,63 +542,63 @@ int main() {
 
 
 
-  title("Testing cslib::Datei"); {
+  title("Testing cslib::Path"); {
     const TempFile FILE;
 
     // Testing ability to read file properties
-    Datei rtfFile(FILE.wstr());
-    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "Datei should have the correct last modified time");
-    log(rtfFile.type() == std::filesystem::file_type::regular, "Datei should create a regular file");
+    Path rtfFile(FILE.wstr());
+    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "Path should have the correct last modified time");
+    log(rtfFile.type() == std::filesystem::file_type::regular, "Path should create a regular file");
 
     // Depth and position checks
-    Datei rofFileParent(FILE.parent());
-    log(rofFileParent.type() == std::filesystem::file_type::directory, "Datei should create a directory for the parent path");
-    log(rofFileParent == std::filesystem::temp_directory_path(), "Datei parent path should be the temp directory path");
+    Path rofFileParent(FILE.parent());
+    log(rofFileParent.type() == std::filesystem::file_type::directory, "Path should create a directory for the parent path");
+    log(rofFileParent == std::filesystem::temp_directory_path(), "Path parent path should be the temp directory path");
     #ifdef _WIN32
       const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
     #else
       const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
     #endif
-    log(rtfFile.depth() == EXPECTED_DEPTH, "Datei should have the correct depth for temp file");
+    log(rtfFile.depth() == EXPECTED_DEPTH, "Path should have the correct depth for temp file");
 
     // Equality and inequality checks
-    Datei rtoFileCopy(rtfFile);
-    log(rtoFileCopy == rtfFile, "Datei == operator should work for same file paths");
-    log(rtoFileCopy != Datei("../"), "Datei != operator should work for different file paths");
-    log(rtoFileCopy == FILE.wstr().data(), "Datei == operator should work for strings");
-    log(rtoFileCopy != (FILE.wstr() + L"???"), "Datei != operator should work for different strings");
+    Path rtoFileCopy(rtfFile);
+    log(rtoFileCopy == rtfFile, "Path == operator should work for same file paths");
+    log(rtoFileCopy != Path("../"), "Path != operator should work for different file paths");
+    log(rtoFileCopy == FILE.wstr().data(), "Path == operator should work for strings");
+    log(rtoFileCopy != (FILE.wstr() + L"???"), "Path != operator should work for different strings");
 
     // Conversions to other types
-    log(std::wstring(rtfFile) == FILE.wstr(), "Datei should convert to wstring correctly");
+    log(std::wstring(rtfFile) == FILE.wstr(), "Path should convert to wstring correctly");
     std::filesystem::path& logFileAsFsRef = rtfFile;
-    log(logFileAsFsRef == rtfFile, "Datei should convert to filesystem path reference correctly");
+    log(logFileAsFsRef == rtfFile, "Path should convert to filesystem path reference correctly");
     const std::filesystem::path& logFileAsFsConstRef = rtfFile;
-    log(logFileAsFsConstRef == rtfFile, "Datei should convert to filesystem path const reference correctly");
+    log(logFileAsFsConstRef == rtfFile, "Path should convert to filesystem path const reference correctly");
     std::filesystem::path logFileAsFsCopy = rtfFile;
-    log(logFileAsFsCopy == rtfFile, "Datei should convert to filesystem path copy correctly");
+    log(logFileAsFsCopy == rtfFile, "Path should convert to filesystem path copy correctly");
     std::filesystem::path* logFileAsFsPtr = rtfFile;
-    log(logFileAsFsPtr == (void*)&rtfFile, "Datei should return its filesystem path pointer correctly");
+    log(logFileAsFsPtr == (void*)&rtfFile, "Path should return its filesystem path pointer correctly");
     const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
-    log(logFileAsFsConstPtr == (void*)&rtfFile, "Datei should return its filesystem path const pointer correctly");
+    log(logFileAsFsConstPtr == (void*)&rtfFile, "Path should return its filesystem path const pointer correctly");
 
     // Constructors
     try {
-      Datei invalidPath(L"non_existing_path/cslib_test_log.txt");
-      log(false, "Datei should throw an error for non-existing path");
+      Path invalidPath(L"non_existing_path/cslib_test_log.txt");
+      log(false, "Path should throw an error for non-existing path");
     } catch (const std::filesystem::filesystem_error &e) {
-      log(find_error(e, "No such file or directory"), "Datei should throw an error for non-existing path");
+      log(find_error(e, "No such file or directory"), "Path should throw an error for non-existing path");
     }
     try {
-      Datei emptyPath(L"../", std::filesystem::file_type::regular);
-      log(false, "Datei should recognize between file types at construction");
+      Path emptyPath(L"../", std::filesystem::file_type::regular);
+      log(false, "Path should recognize between file types at construction");
     } catch (const std::runtime_error &e) {
-      log(find_error(e, "initialized with unexpected file type"), "Datei should throw an error for unexpected file type at construction");
+      log(find_error(e, "initialized with unexpected file type"), "Path should throw an error for unexpected file type at construction");
     }
   }
 
 
 
-  title("Testing child classes of cslib::Datei"); {
+  title("Testing child classes of cslib::Path"); {
     TempFolder tempFolder; // Create a temporary folder
 
     // Creation
@@ -658,7 +658,7 @@ int main() {
       TempFolder targetFolder;
       Folder dummyFolderCopy = dummyFolder.copy_self_into(targetFolder);
       Folder dummySubCopyFolder;
-      for (const Datei &item : dummyFolderCopy.list()) {
+      for (const Path &item : dummyFolderCopy.list()) {
         if (item.type() == std::filesystem::file_type::directory) {
           dummySubCopyFolder = Folder(item.wstr());
           break;

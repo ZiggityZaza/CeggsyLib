@@ -664,7 +664,7 @@ int main() {
           break;
         }
       }
-      File dummySubFile = File(dummySubCopyFolder.list().front());
+      File dummySubFile(dummySubCopyFolder.list().front());
       log(std::filesystem::exists(targetFolder.wstr()), "Target folder should exist after copy");
       log(targetFolder.has(dummyFolderCopy), "Target folder should have dummyFolder after copy");
       log(dummyFolderCopy.has(dummySubCopyFolder), "Dummy folder copy should have subfolder copy");

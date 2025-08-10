@@ -194,23 +194,6 @@ namespace cslib {
 
 
 
-  template <typename T>
-  std::vector<T> line_up(cptr<T> _itBegin, cptr<T> _itEnd) {
-    /*
-      Create a vector from the given range of iterators.
-      Example:
-        std::vector<int> vec = cslib::line_up(arr.begin(), arr.end());
-    */
-    if (_itBegin == nullptr or _itEnd == nullptr)
-      throw_up("line_up: Iterators cannot be null");
-    std::vector<T> result;
-    for (const T* it = _itBegin; it != _itEnd; ++it)
-      result.push_back(*it);
-    return result;
-  }
-
-
-
   str_t get_env(strv_t _var) {
     /*
       Get the value of an environment variable.
@@ -549,7 +532,7 @@ namespace cslib {
 
 
 
-  class Path { public:
+  class Road { public:
     /*
       Abstract base class for filesystem entries.
       Represents a path in the filesystem and provides
@@ -561,6 +544,7 @@ namespace cslib {
     // Path management
     std::wstring wstr() const { return isAt.wstring(); }
     std::string str() const { return isAt.string(); }
+    std::string name() const { return isAt.filename().string(); }
     std::filesystem::file_type type() const {
       return std::filesystem::status(isAt).type();
     }
@@ -568,13 +552,13 @@ namespace cslib {
       auto ftime = std::filesystem::last_write_time(isAt);
       return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
-    Path parent() const {
-      return Path(isAt.parent_path(), std::filesystem::file_type::directory);
+    Road parent() const {
+      return Road(isAt.parent_path(), std::filesystem::file_type::directory);
     }
     size_t depth() const {
       /*
         Example:
-          Path path("/gitstuff/cslib/cslib.h++");
+          Road path("/gitstuff/cslib/cslib.h++");
           size_t depth = path.depth();
           // depth = 3 (because there are 3 directories before the file)
       */
@@ -587,7 +571,7 @@ namespace cslib {
           The new name must not contain any path separators.
       */
       if (_newName.find(std::filesystem::path::preferred_separator) != std::wstring::npos)
-        throw_up("New name '", _newName, "' contains path separator");
+        throw_up("New name '", _newName, "' contains path separators");
       std::filesystem::path newPath = isAt.parent_path() / _newName;
       if (std::filesystem::exists(newPath))
         throw_up("Path ", newPath, " already exists");
@@ -596,8 +580,8 @@ namespace cslib {
     }
 
 
-    bool operator==(const Path& _other) const { return this->isAt == _other.isAt; }
-    bool operator!=(const Path& _other) const { return !(*this == _other); }
+    bool operator==(const Road& _other) const { return this->isAt == _other.isAt; }
+    bool operator!=(const Road& _other) const { return !(*this == _other); }
     bool operator==(const std::filesystem::path& _other) const { return this->isAt == _other; }
     bool operator!=(const std::filesystem::path& _other) const { return !(*this == _other); }
     // Implicitly converts wide (c-)strings to std::filesystem::path 
@@ -610,28 +594,27 @@ namespace cslib {
     operator const std::filesystem::path&() const { return this->isAt; }
     operator std::filesystem::path*() { return &this->isAt; }
     operator std::filesystem::path*() const { return const_cast<std::filesystem::path*>(&this->isAt); } // casted immutable
-    friend std::ostream& operator<<(std::ostream& _out, const Path& _entry) {
+    friend std::ostream& operator<<(std::ostream& _out, const Road& _entry) {
       return _out << _entry.str();
     }
 
 
-    Path() = default;
-    Path(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
-    Path(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
+    Road() = default;
+    Road(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
+    Road(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
     if (_type != this->type())
-      throw_up("Path ", _where, " initialized with unexpected file type");
+      throw_up("Road ", _where, " initialized with unexpected file type");
     }
   };
 
 
 
-  class File; // Forward decl for .list method
-  class Folder : public Path { public:
+  class Folder : public Road { public:
     /*
       Child class of Path that represents a folder.
       Example:
         Folder folder("/gitstuff/cslib");
-        if (folder.has(Path("/gitstuff/cslib/cslib.h++")))
+        if (folder.has(Road("/gitstuff/cslib/cslib.h++")))
           std::wcout << "Folder contains the file\n";
     */
 
@@ -643,24 +626,23 @@ namespace cslib {
         std::filesystem::create_directory(_where);
         if (!std::filesystem::exists(_where))
           throw_up("Failed to create folder ", _where);
-      } else
-        if (!std::filesystem::is_directory(_where))
-          throw_up("Path ", _where, " is not a directory");
+      } else if (!std::filesystem::is_directory(_where))
+        throw_up("Path ", _where, " is not a directory");
       isAt = std::filesystem::canonical(_where);
     }
 
 
-    std::vector<Path> list() const {
+    std::vector<Road> list() const {
       /*
         List all entries in the folder.
         Returns a vector of Path, File and Folder objects.
       */
-      std::vector<Path> entries;
+      std::vector<Road> entries;
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
-        entries.emplace_back(Path(entry.path()));
+        entries.emplace_back(Road(entry.path()));
       return entries;
     }
-    bool has(const Path& _item) const {
+    bool has(const Road& _item) const {
       return contains(list(), _item);
     }
 
@@ -686,7 +668,7 @@ namespace cslib {
 
 
 
-  class File : public Path { public:
+  class File : public Road { public:
     /*
       Child class of RouteToFile that represents a file.
       Example:
@@ -701,6 +683,8 @@ namespace cslib {
         throw_up("Path empty");
       if (_createIfNotExists and !std::filesystem::exists(_where))
         std::ofstream file(_where);
+      if (!std::filesystem::is_regular_file(_where))
+        throw_up("Path ", _where, " is not a regular file");
       isAt = std::filesystem::canonical(_where);
     }
 
@@ -774,15 +758,15 @@ namespace cslib {
 
 
 
-  std::vector<std::variant<File, Folder, Path>> deduct_list_items(const std::vector<Path>& _list) {
+  std::vector<std::variant<File, Folder, Road>> deduct_list_items(const std::vector<Road>& _list) {
     /*
       Deduct the types of paths in the list.
       Note:
         Defined after the class declarations
         to ensure all types are known.
     */
-    std::vector<std::variant<File, Folder, Path>> result;
-    for (const Path& entry : _list)
+    std::vector<std::variant<File, Folder, Road>> result;
+    for (const Road& entry : _list)
       if (entry.type() == std::filesystem::file_type::regular)
         result.emplace_back(File(entry));
       else if (entry.type() == std::filesystem::file_type::directory)
@@ -925,11 +909,16 @@ namespace cslib {
 
 
   MACRO CONFIG_FILE_NAME = "cslib_configs.ini";
-  SHARED std::optional<File> configFile = [] -> std::optional<File> {
+  /*
+    Configuration file for cslib. The file is used
+    to store configuration options for cslib and
+    other libraries that use cslib.
+  */
+  File find_configsFile(bool _createIfNotExists) {
     /*
       Get the cslib configs file in the application data folder.
       If the file does not exist, it will be created.
-      Returns an optional File object.
+      Returns a File object.
     */
     Folder appDataFolder = [] {
       /*
@@ -938,7 +927,7 @@ namespace cslib {
         Note:
           If the folder does not exist, it will be created.
       */
-      std::filesystem::path appDataPath = "";
+      std::filesystem::path appDataPath;
       #ifdef _WIN32
         appDataPath = std::filesystem::path(get_env("APPDATA"));
       #else
@@ -948,75 +937,45 @@ namespace cslib {
           appDataPath = std::filesystem::path(get_env("HOME")) / ".config";
         }
       #endif
-      return Folder(appDataPath); // Don't create if not exists
+      return Folder(appDataPath, false); // Don't create if not exists
     }();
+    return File(appDataFolder.isAt / CONFIG_FILE_NAME, _createIfNotExists); // Create if not exists
+  }
 
-    try {
-      return File(appDataFolder.isAt / CONFIG_FILE_NAME); // Don't create if not exists
-    } catch (std::exception&) {
-      return std::nullopt;
+
+
+  std::map<str_t, std::map<str_t, str_t>> parse_configsFile(const File& _configsFile) {
+    std::map<str_t, std::map<str_t, str_t>> configs;
+    str_t content = _configsFile.read_text();
+    str_t currentSection;
+    for (strv_t line : separate(content, "\n")) {
+      str_t trimmedLine(line);
+      trimmedLine.erase(0, trimmedLine.find_first_not_of(" \t")); // Remove leading whitespace
+      trimmedLine.erase(trimmedLine.find_last_not_of(" \t") + 1); // Remove trailing whitespace
+      if (trimmedLine.empty() or trimmedLine.at(0) == ';')
+        continue; // Skip empty lines and comments
+      if (trimmedLine.at(0) == '[' and trimmedLine.back() == ']') {
+        // Section header
+        currentSection = trimmedLine.substr(1, trimmedLine.length() - 2);
+        configs.insert({currentSection, {}});
+      } else {
+        // Key-value pair
+        size_t eqPos = trimmedLine.find('=');
+        if (eqPos == str_t::npos)
+          throw_up("Invalid line in config file: '", line, "'");
+        str_t key = trimmedLine.substr(0, eqPos);
+        str_t value = trimmedLine.substr(eqPos + 1);
+        key.erase(0, key.find_first_not_of(" \t")); // Remove leading whitespace
+        key.erase(key.find_last_not_of(" \t") + 1); // Remove trailing whitespace
+        value.erase(0, value.find_first_not_of(" \t")); // Remove leading whitespace
+        value.erase(value.find_last_not_of(" \t") + 1); // Remove trailing whitespace
+        if (currentSection.empty())
+          throw_up("Key-value pair without section in config file: '", line, "'");
+        if (configs.find(currentSection) == configs.end())
+          throw_up("Key-value pair in unknown section in config file: '", line, "'");
+        configs[currentSection].insert({key, value});
+      }
     }
-  }();
-
-
-  // Folder find_appdata_folder() {
-  //   /*
-  //     Find the application data folder for the current user.
-  //     Returns a Folder object pointing to the folder.
-  //     Note:
-  //       If the folder does not exist, it will be created.
-  //   */
-  //   std::filesystem::path appDataPath;
-  //   #ifdef _WIN32
-  //     appDataPath = std::filesystem::path(get_env("APPDATA"));
-  //   #else
-  //     appDataPath = std::filesystem::path(get_env("XDG_CONFIG_HOME"));
-  //     if (appDataPath.empty())
-  //       appDataPath = std::filesystem::path(get_env("HOME")) / ".config";
-  //   #endif
-  //   return Folder(appDataPath, true); // Create if not exists
-  // }
-
-
-  // std::map<str_t, std::map<str_t, str_t>> get_cslib_configs(Folder& _where) {
-  //   /*
-  //     Get the cslib configs file in the given path.
-  //     If the file does not exist, it will be created..
-  //   */
-  //   File file(_where.isAt / CONFIG_FILE_NAME, true); // Create if not exists
-
-  //   // Parse ini
-  //   std::map<str_t, std::map<str_t, str_t>> configs;
-  //   str_t content = file.read_text();
-  //   str_t currentSection;
-  //   for (strv_t line : separate(content, "\n")) {
-  //     str_t trimmedLine(line);
-  //     trimmedLine.erase(0, trimmedLine.find_first_not_of(" \t")); // Remove leading whitespace
-  //     trimmedLine.erase(trimmedLine.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-  //     if (trimmedLine.empty() or trimmedLine.at(0) == ';') //
-  //       continue; // Skip empty lines and comments
-  //     if (trimmedLine.at(0) == '[' and trimmedLine.back() == ']') {
-  //       // Section header
-  //       currentSection = trimmedLine.substr(1, trimmedLine.length() - 2);
-  //       configs.insert({currentSection, {}});
-  //     } else {
-  //       // Key-value pair
-  //       size_t eqPos = trimmedLine.find('=');
-  //       if (eqPos == str_t::npos)
-  //         throw_up("Invalid line in config file: '", line, "'");
-  //       str_t key = trimmedLine.substr(0, eqPos);
-  //       str_t value = trimmedLine.substr(eqPos + 1);
-  //       key.erase(0, key.find_first_not_of(" \t")); // Remove leading whitespace
-  //       key.erase(key.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-  //       value.erase(0, value.find_first_not_of(" \t")); // Remove leading whitespace
-  //       value.erase(value.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-  //       if (currentSection.empty())
-  //         throw_up("Key-value pair without section in config file: '", line, "'");
-  //       if (configs.find(currentSection) == configs.end())
-  //         throw_up("Key-value pair in unknown section in config file: '", line, "'");
-  //       configs[currentSection].insert({key, value});
-  //     }
-  //     return configs;
-  //   }
-  // }
+    return configs;
+  }
 } // namespace cslib

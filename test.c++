@@ -104,12 +104,16 @@ int main() {
     std::ostringstream shouldBeWhat; // e.what()
     shouldBeWhat << "cslib::any_error called in workspace " << std::filesystem::current_path();
     shouldBeWhat << " on line " << __LINE__ + 3 << " because: "; // throw_up is called 3 lines beneath
-    shouldBeWhat << "Error: CSLIB_TEST 1234.56";
+    shouldBeWhat << "CSLIB_TEST 1234.56";
     try {
       throw_up("CSLIB", '_', L"TEST", L' ', 123, 4.56f);
+      log(false, "throw_up should throw an error");
     }
     catch (const cslib::any_error &e) {
-      std::cout << e.what();
+      log(e.what() == shouldBeWhat.str(), "cslib::any_error should have the correct error message");
+    }
+    catch (...) {
+      log(false, "throw_up should throw of type cslib::any_error");
     }
   }
 
@@ -123,10 +127,6 @@ int main() {
     pause(0);
     log(elpsd > 499 && elpsd < 510, "pause for 0ms shouldn't take longer than 0ms (took ", elpsd, "ms)");
   }
-
-
-
-
 
 
 
@@ -413,22 +413,270 @@ int main() {
 
 
 
-  title("Testing cslib::read_wdata and cslib::do_io"); {
-    // read_wdata read-only
-    // std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
+  title("Testing cslib::read_data and cslib::do_io"); {
     const TempFile TEST_FILE;
     TEST_FILE.edit_text("John\nMoney\n");
-    std::wifstream inFile(TEST_FILE.isAt);
+    std::ifstream inFile(TEST_FILE);
     log(read_data(inFile) == "John\nMoney\n", "read_wdata file reading should return file content");
     log(read_data(inFile) == "John\nMoney\n", "read_wdata should still same content after reading again");
     inFile.close();
     log(read_data(inFile) == "", "read_wdata should return empty after closing stream");
-    std::wifstream inFile2(TEST_FILE.isAt);
+    std::ifstream inFile2(TEST_FILE);
     log(read_data(inFile2) == "John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
 
     // do_io by itself
-    std::wostringstream woss;
+    std::ostringstream woss;
     do_io(inFile2, woss);
     log(woss.str() == "John\nMoney\n", "do_io should read from input stream and write to output stream");
+  }
+
+
+
+  title("Testing cslib::TimeStamp"); {
+    TimeStamp ts1;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
+    log(elapsed >= 499 and elapsed <= 510, "TimeStamp should be within 510ms of current time");
+
+    // Correctness of formatting
+    std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
+    std::tm *tm = std::localtime(&now);
+    log(((std::ostringstream() << std::put_time(tm, "%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_str()), "TimeStamp should format time correctly");
+
+    // Making sure TimeStamp returns correct values
+    TimeStamp rightNow;
+    log(rightNow.year() == unsigned(tm->tm_year + 1900), "TimeStamp should return correct year");
+    log(rightNow.month() == unsigned(tm->tm_mon + 1), "TimeStamp should return correct month");
+    log(rightNow.day() == unsigned(tm->tm_mday), "TimeStamp should return correct day");
+    log(rightNow.hour() == unsigned(tm->tm_hour), "TimeStamp should return correct hour");
+    log(rightNow.minute() == unsigned(tm->tm_min), "TimeStamp should return correct minute");
+    log(rightNow.second() == unsigned(tm->tm_sec), "TimeStamp should return correct second");
+
+    // Testing constructor
+    TimeStamp ts2(30, 45, 12, 25, 12, 2023); // 12:45:30 on 25th December 2023
+    log(ts2.year() == 2023, "TimeStamp should return correct year from constructor");
+    log(ts2.month() == 12, "TimeStamp should return correct month from constructor");
+    log(ts2.day() == 25, "TimeStamp should return correct day from constructor");
+    log(ts2.hour() == 12, "TimeStamp should return correct hour from constructor");
+    log(ts2.minute() == 45, "TimeStamp should return correct minute from constructor");
+    log(ts2.second() == 30, "TimeStamp should return correct second from constructor");
+    log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
+
+    // Error handling
+    try {
+      TimeStamp invalidTs(61, 0, 0, 1, 1, 2023); // Invalid second
+      log(false, "TimeStamp should throw an error for invalid time");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "Invalid time"), "TimeStamp should throw an error for invalid time");
+    }
+  }
+
+
+
+  title("Testing cslib::Out"); {
+    std::ostringstream oss;
+    Out(oss, "[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << 3.14f;
+    str_t expected = to_str("[") + TimeStamp().as_str() + "]\033[36m[checking cslib::Out] \033[0mnarrow_1233.14";
+    log(oss.str() == expected, "cslib::Out with a mix of streamable types should format correctly");
+  }
+
+
+
+  title("Testing cslib::Benchmark"); {
+    Benchmark bm1;
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
+    double elapsed = bm1.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 510, "Benchmark should measure time correctly (took ", elapsed, "ms)");
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
+    elapsed = bm1.elapsed_ms();
+    log(elapsed >= 998 && elapsed <= 1020, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
+    bm1.reset();
+    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
+    elapsed = bm1.elapsed_ms();
+    log(elapsed >= 499 && elapsed <= 510, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
+  }
+
+
+
+  title("Testing cslib::Road on its own"); {
+    const TempFile FILE;
+
+    // Testing ability to read file properties
+    Road road(FILE.wstr());
+    log(TimeStamp(road.last_modified()).as_str() == TimeStamp().as_str(), "Road should have the correct last modified time");
+    log(road.type() == std::filesystem::file_type::regular, "Road should create a regular file");
+
+    // Depth and position checks
+    Road rofFileParent(FILE.parent());
+    log(rofFileParent.type() == std::filesystem::file_type::directory, "Road should create a directory for the parent path");
+    log(rofFileParent == std::filesystem::temp_directory_path(), "Road parent path should be the temp directory path");
+    #ifdef _WIN32
+      const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
+    #else
+      const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
+    #endif
+    log(road.depth() == EXPECTED_DEPTH, "Road should have the correct depth for temp file");
+
+    // renaming self
+    str_t previousName = road.name(); // Backup previous name
+    str_t tempName = TempFile().name(); // Deletes rvalue File after for access
+    road.rename_self_to(tempName); // Warning: FILE now points to invalid file
+    log(road.name() == tempName, "Road should rename itself correctly");
+    road.rename_self_to(previousName); // Restore previous name
+    try {
+      road.rename_self_to("/someFolder");
+      log(false, "Road should throw an error when trying to change location too");
+    } catch (const any_error &e) {
+      log(find_error(e, "' contains path separators"), "Road should throw an error when trying to change location");
+    }
+    {
+      TempFile occupyFileName;
+      try {
+        road.rename_self_to(occupyFileName.name());
+        log(false, "Road should throw an error when trying to rename self to something existing");
+      } catch (const any_error &e) {
+        log(find_error(e, "' already exists"), "Road should throw an error when trying to rename self to something existing");
+      }
+    }
+
+    // Equality and inequality checks
+    Road roadCopy(road);
+    log(roadCopy == road, "Road == operator should work for same file paths");
+    log(roadCopy != Road("../"), "Road != operator should work for different file paths");
+    log(roadCopy == FILE.str(), "Road == operator should work for strings");
+    log(roadCopy != (FILE.str() + "???"), "Road != operator should work for different strings");
+
+    // Conversions to other types
+    log(std::string(road) == FILE.str(), "Road should convert to string correctly");
+    std::filesystem::path& logFileAsFsRef = road;
+    log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
+    const std::filesystem::path& logFileAsFsConstRef = road;
+    log(logFileAsFsConstRef == road, "Road should convert to filesystem path const reference correctly");
+    std::filesystem::path logFileAsFsCopy = road;
+    log(logFileAsFsCopy == road, "Road should convert to filesystem path copy correctly");
+    std::filesystem::path* logFileAsFsPtr = road;
+    log(logFileAsFsPtr == (void*)&road, "Road should return its filesystem path pointer correctly");
+    const std::filesystem::path* logFileAsFsConstPtr = road;
+    log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
+
+    // Constructors
+    try {
+      Road invalidPath("non_existing_path/cslib_test_log.txt");
+      log(false, "Road should throw an error for non-existing path");
+    } catch (const std::filesystem::filesystem_error &e) {
+      log(find_error(e, "No such file or directory"), "Road should throw an error for non-existing path");
+    }
+    try {
+      Road emptyPath("../", std::filesystem::file_type::regular);
+      log(false, "Road should recognize between file types at construction");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "initialized with unexpected file type"), "Road should throw an error for unexpected file type at construction");
+    }
+  }
+
+
+
+  title("Testing child cslib::Folder class of cslib::Path"); {
+    TempFolder tempFolder;
+
+    // Creation
+    try {
+      Folder nonExistingFolder("_its_unlikely_that_there_is_a_folder_with_this_name_");
+      log(false, "Folder constructor shouldn't succeed for non-existing folder");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for non-existing folder"); // Implicit for stl ::is_directory
+    }
+    try {
+      Folder emptyFolder("");
+      log(false, "Folder constructor shouldn't succeed for empty path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "Path empty"), "Folder constructor should throw an error for empty path");
+    }
+    try {
+      Folder invalidTypeFolder(TempFile().str());
+      log(false, "Folder constructor shouldn't succeed for file path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for file path");
+    }
+
+    // Valid folder creation
+    log(std::filesystem::exists(tempFolder.wstr()), "Folder should be created at the specified path");
+    log(tempFolder.type() == std::filesystem::file_type::directory, "Folder should be of type directory");
+
+    // Try folder listing and checking
+    {
+      // Put stuff into place
+      TempFolder subFolder;
+      subFolder.move_self_into(tempFolder);
+      TempFolder subsubFolder;
+      subsubFolder.move_self_into(subFolder);
+      TempFile subsubFile1, subFile2, subFile3;
+      subsubFile1.move_self_into(subsubFolder);
+      subFile2.move_self_into(subFolder);
+      subFile3.move_self_into(subFolder);
+      log(subFolder.list().size() == 3, "Folder should have 3 items in the list");
+      str_t content = stringify_container(subFolder.list());
+      log(content.find(subsubFolder.str()) != str_t::npos, "Folder list should contain subfolder");
+      log(subFolder.has(subsubFolder), "Folder .has() method should recognize subfolder");
+      log(content.find(subFile2.str()) != str_t::npos, "Folder list should contain subFile2");
+      log(subFolder.has(subFile2), "Folder .has() method should recognize subFile2");
+      log(content.find(subFile3.str()) != str_t::npos, "Folder list should contain subFile3");
+      log(subFolder.has(subFile3), "Folder .has() method should recognize subFile3");
+    }
+    log(tempFolder.list().size() == 0, "Folder should be empty after temporary items are out of scope");
+
+    // Testing copy on disk methods
+    {
+      TempFolder dummyFolder;
+      TempFolder subFolder;
+      TempFile subFile, subsubFile;
+      subFolder.move_self_into(dummyFolder);
+      subFile.move_self_into(dummyFolder);
+      subsubFile.move_self_into(subFolder);
+      TempFolder targetFolder;
+      Folder dummyFolderCopy = dummyFolder.copy_self_into(targetFolder);
+      Folder dummySubCopyFolder;
+      for (const Road &item : dummyFolderCopy.list())
+        if (item.type() == std::filesystem::file_type::directory) {
+          dummySubCopyFolder = Folder(item.wstr());
+          break;
+        }
+      File dummySubFile(dummySubCopyFolder.list().front());
+      log(std::filesystem::exists(targetFolder.wstr()), "Target folder should exist after copy");
+      log(targetFolder.has(dummyFolderCopy), "Target folder should have dummyFolder after copy");
+      log(dummyFolderCopy.has(dummySubCopyFolder), "Dummy folder copy should have subfolder copy");
+      log(dummySubCopyFolder.has(dummySubFile), "Dummy subfolder copy should have subfile copy");
+    }
+  }
+
+
+
+  title("Testing child class of cslib::Path, cslib::File"); {
+    TempFile tempFile;
+
+    // Creation
+    try {
+      File nonExistingFile("_its_unlikely_that_there_is_a_file_with_this_name_");
+      log(false, "File constructor shouldn't succeed for non-existing file");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
+    }
+    try {
+      File emptyFile("");
+      log(false, "File constructor shouldn't succeed for empty path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "Path empty"), "File constructor should throw an error for empty path");
+    }
+    try {
+      File invalidTypeFile(TempFolder().str());
+      log(false, "File constructor shouldn't succeed for directory path");
+    } catch (const std::runtime_error &e) {
+      log(find_error(e, "is not a regular file"), "File constructor should throw an error for directory path");
+    }
+
+    // Valid file creation
+    log(std::filesystem::exists(tempFile.wstr()), "File should be created at the specified path");
+    log(tempFile.type() == std::filesystem::file_type::regular, "File should be of type regular");
+
   }
 }

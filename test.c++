@@ -2,24 +2,20 @@
 using namespace cslib;
 
 
-void title(std::string_view title) {
-  if (!isWcharIOEnabled)
-    enable_wchar_io();
-  std::wcout << L"\n\033[1;34m" << title.data() << L"\033[0m\n";
+void title(const auto& title) {
+  std::cout << "\n\033[1;34m" << title << "\033[0m\n";
 }
 
 
 template <typename... _Args>
 void log(bool conditionResult, _Args&&... conditionsExplained) {
-  if (!isWcharIOEnabled)
-    enable_wchar_io();
   if (conditionResult)
-    std::wcout << L"\033[1;32m[PASSED]\033[0m";
+    std::cout << "\033[1;32m[PASSED]\033[0m";
   else
-    std::wcout << L"\033[1;31m[FAILED]\033[0m";
-  std::wcout << " > ";
-  ((std::wcout << std::forward<_Args>(conditionsExplained)), ...);
-  std::wcout << L'\n';
+    std::cout << "\033[1;31m[FAILED]\033[0m";
+  std::cout << " > ";
+  ((std::cout << std::forward<_Args>(conditionsExplained)), ...);
+  std::cout << std::endl;
 }
 
 bool find_error(const std::runtime_error& e, std::string_view lookFor) {
@@ -95,17 +91,25 @@ int main() {
 
 
 
-  title("Testing cslib::up_impl and throw_up"); {
-    std::string shouldBeStdError = "std::runtime_error called from line ";
-    shouldBeStdError += std::to_string(__LINE__ + 5);
-    shouldBeStdError += " in workspace '";
-    shouldBeStdError += std::filesystem::current_path().string();
-    shouldBeStdError += "' because: \033[1m\033[31mError: CSLIB_TEST 1233.14\033[0m";
+  title("Testing cslib::wstrlen and cslib::strlen"); {
+    log(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const)");
+    log(strlen("Hello World") == 11, "strlen(const char *const)");
+    static_assert(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const) constexpr");
+    static_assert(strlen("Hello World") == 11, "strlen(const char *const) constexpr");
+  }
+
+
+
+  title("Testing cslib::any_error and throw_up"); {
+    std::ostringstream shouldBeWhat; // e.what()
+    shouldBeWhat << "cslib::any_error called in workspace " << std::filesystem::current_path();
+    shouldBeWhat << " on line " << __LINE__ + 3 << " because: "; // throw_up is called 3 lines beneath
+    shouldBeWhat << "Error: CSLIB_TEST 1234.56";
     try {
-      throw_up("CSLIB", '_', L"TEST", L' ', 123, 3.14f);
+      throw_up("CSLIB", '_', L"TEST", L' ', 123, 4.56f);
     }
-    catch (const std::runtime_error &e) {
-      log(e.what() == shouldBeStdError, "throw_up with up_impl");
+    catch (const cslib::any_error &e) {
+      std::cout << e.what();
     }
   }
 
@@ -122,46 +126,7 @@ int main() {
 
 
 
-  title("Testing (constexpr-) cslib::wstrlen(wstrv_t) with implicit conversions"); {
-    log(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const)");
-    log(wstrlen(L"") == 0, "wstrlen(const wchar_t *const) empty");
-    log(wstrlen(L"This is a pretty long string") == 28, "wstrlen(const wchar_t *const) long string");
-    log(wstrlen(std::wstring(L"Hello World")) == 11, "wstrlen(const wstr_t&)");
-    log(wstrlen(std::wstring(L"")) == 0, "wstrlen(const wstr_t&) empty");
-    log(wstrlen(std::wstring(L"This is a pretty long string")) == 28, "wstrlen(const wstr_t&) long string");
-    log(wstrlen(std::wstring_view(L"Hello World")) == 11, "wstrlen(const wstrv_t&)");
-    log(wstrlen(std::wstring_view(L"")) == 0, "wstrlen(const wstrv_t&) empty");
-    log(wstrlen(L"Hello World") == 11, "wstrlen(wstrv_t) with implicit conversions");
-    static_assert(wstrlen(L"Hello World") == 11, "wstrlen(const wchar_t *const) constexpr");
-    static_assert(wstrlen(L"") == 0, "wstrlen(const wchar_t *const) empty constexpr");
-    static_assert(wstrlen(L"This is a pretty long string") == 28, "wstrlen(const wchar_t *const) long string constexpr");
-    static_assert(wstrlen(std::wstring(L"Hello World")) == 11, "wstrlen(const wstr_t&) constexpr");
-    static_assert(wstrlen(std::wstring(L"")) == 0, "wstrlen(const wstr_t&) empty constexpr");
-    static_assert(wstrlen(std::wstring(L"This is a pretty long string")) == 28, "wstrlen(const wstr_t&) long string constexpr");
-    static_assert(wstrlen(std::wstring_view(L"Hello World")) == 11, "wstrlen(const wstrv_t&) constexpr");
-    static_assert(wstrlen(std::wstring_view(L"")) == 0, "wstrlen(const wstrv_t&) empty constexpr");
-    static_assert(wstrlen(std::wstring_view(L"This is a pretty long string")) == 28, "wstrlen(const wstrv_t&) long string constexpr");
-  }
 
-
-
-  title("Testing cslib::upper and cslib::lower"); {
-    std::wstring_view mixedStrv = L"csLib.h++";
-    std::wstring mixedStr = L"csLib.h++";
-    const wchar_t *const mixedCStr = L"csLib.h++";
-    log(upper_str(mixedStrv) == L"CSLIB.H++", "upper(wstrv_t) implicit conversion");
-    log(upper_str(mixedStr) == L"CSLIB.H++", "upper(wstr_t) implicit conversion");
-    log(upper_str(mixedCStr) == L"CSLIB.H++", "upper(const wchar_t *const) implicit conversion");
-    log(lower_str(mixedStrv) == L"cslib.h++", "lower(wstrv_t) implicit conversion");
-    log(lower_str(mixedStr) == L"cslib.h++", "lower(wstr_t) implicit conversion");
-    log(lower_str(mixedCStr) == L"cslib.h++", "lower(const wchar_t *const) implicit conversion");
-    static_assert(upper_str(L"csLib.h++") == L"CSLIB.H++", "upper_str constexpr with implicit conversion");
-    static_assert(lower_str(L"csLib.h++") == L"cslib.h++", "lower_str constexpr with implicit conversion");
-    static_assert(upper_str(std::wstring_view(L"csLib.h++")) == L"CSLIB.H++", "upper_str constexpr with wstrv_t");
-    static_assert(lower_str(std::wstring_view(L"csLib.h++")) == L"cslib.h++", "lower_str constexpr with wstrv_t");
-    static_assert(upper_str(std::wstring(L"csLib.h++")) == L"CSLIB.H++", "upper_str constexpr with wstr_t");
-    static_assert(lower_str(std::wstring(L"csLib.h++")) == L"cslib.h++", "lower_str constexpr with wstr_t");
-  }
 
 
 
@@ -381,7 +346,7 @@ int main() {
     std::array<int, 5> arr = {1, 2, 3, 4, 5};
     constexpr std::array<int, 5> carr = {1, 2, 3, 4, 5};
     std::initializer_list<int> initList = {1, 2, 3, 4, 5};
-    wstrv_t expected = L"{1, 2, 3, 4, 5}";
+    strv_t expected = "{1, 2, 3, 4, 5}";
     log(stringify_container(vec) == expected, "stringify_container(vector)");
     log(stringify_container(deq) == expected, "stringify_container(deque)");
     log(stringify_container(set) == expected, "stringify_container(set)");
@@ -394,9 +359,9 @@ int main() {
 
 
   title("Testing cslib::shorten_end/begin"); { // No narrow string support
-    std::wstring str = L"This is a pretty long string";
-    log(shorten_end(str, 10) == L"This is...", "shorten_end with length 10");
-    log(shorten_begin(str, 10) == L"... string", "shorten_begin with length 10");
+    str_t str = "This is a pretty long string";
+    log(shorten_end(str, 10) == "This is...", "shorten_end with length 10");
+    log(shorten_begin(str, 10) == "... string", "shorten_begin with length 10");
     log(shorten_end(str, 100) == str, "shorten_end with length greater than string length should return original string");
     log(shorten_begin(str, 100) == str, "shorten_begin with length greater than string length should return original string");
     try {
@@ -411,28 +376,27 @@ int main() {
     } catch (const std::runtime_error &e) {
       log(find_error(e, "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
     }
-    static_assert(shorten_end(L"This is a pretty long string", 10) == L"This is...", "shorten_end constexpr with length 10");
-    static_assert(shorten_begin(L"This is a pretty long string", 10) == L"... string", "shorten_begin constexpr with length 10");
-    static_assert(shorten_end(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_end constexpr with length greater than string length should return original string");
-    static_assert(shorten_begin(L"This is a pretty long string", 100) == L"This is a pretty long string", "shorten_begin constexpr with length greater than string length should return original string");
+    static_assert(shorten_end("This is a pretty long c-string", 10) == "This is...", "shorten_end constexpr with length 10");
+    static_assert(shorten_begin("This is a pretty long c-string", 10) == "...-string", "shorten_begin constexpr with length 10");
+    static_assert(shorten_end("This is a pretty long c-string", 100) == "This is a pretty long c-string", "shorten_end constexpr with length greater than string length should return original string");
+    static_assert(shorten_begin("This is a pretty long c-string", 100) == "This is a pretty long c-string", "shorten_begin constexpr with length greater than string length should return original string");
   }
 
 
 
   title("Testing cslib::separate"); {
-    std::vector<std::wstring> result = separate(L"John Money", ' ');
+    std::vector<str_t> result = separate("John Money", " ");
     log(result.size() == 2, "separate should return 2 parts");
-    log(result.at(0) == L"John", "First part should be 'John'");
-    log(result.at(1) == L"Money", "Second part should be 'Money'");
-    result = separate(L"John  Money", ' ');
+    log(result.at(0) == "John", "First part should be 'John'");
+    log(result.at(1) == "Money", "Second part should be 'Money'");
+    result = separate("John  Money", " ");
     log(result.size() == 3, "separate should return 3 parts for double spaces");
-    log(result.at(0) == L"John", "First part should be 'John'");
-    log(result.at(1) == L"", "Second part should be empty for double space");
-    log(result.at(2) == L"Money", "Third part should be 'Money'");
-    log(separate(L"", ',').empty(), "separate should return empty vector for empty string");
-    log(separate(L"John Money", L'X').at(0) == L"John Money", "separate with non-existing delimiter should return the whole string in a vector");
+    log(result.at(0) == "John", "First part should be 'John'");
+    log(result.at(1) == "", "Second part should be empty for double space");
+    log(result.at(2) == "Money", "Third part should be 'Money'");
+    log(separate("", ",").empty(), "separate should return empty vector for empty string");
+    log(separate("John Money", "X").at(0) == "John Money", "separate with non-existing delimiter should return the whole string in a vector");
   }
-
 
 
   title("Testing cslib::roll_dice"); {
@@ -453,222 +417,18 @@ int main() {
     // read_wdata read-only
     // std::filesystem::path testFilePath = std::filesystem::temp_directory_path() / "cslib_test_io.txt";
     const TempFile TEST_FILE;
-    TEST_FILE.edit("John\nMoney\n");
+    TEST_FILE.edit_text("John\nMoney\n");
     std::wifstream inFile(TEST_FILE.isAt);
-    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata file reading should return file content");
-    log(read_wdata(inFile) == L"John\nMoney\n", "read_wdata should still same content after reading again");
+    log(read_data(inFile) == "John\nMoney\n", "read_wdata file reading should return file content");
+    log(read_data(inFile) == "John\nMoney\n", "read_wdata should still same content after reading again");
     inFile.close();
-    log(read_wdata(inFile) == L"", "read_wdata should return empty after closing stream");
+    log(read_data(inFile) == "", "read_wdata should return empty after closing stream");
     std::wifstream inFile2(TEST_FILE.isAt);
-    log(read_wdata(inFile2) == L"John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
+    log(read_data(inFile2) == "John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
 
     // do_io by itself
     std::wostringstream woss;
     do_io(inFile2, woss);
-    log(woss.str() == L"John\nMoney\n", "do_io should read from input stream and write to output stream");
-  }
-
-
-
-  title("Skipping wchar support functions/variables tests because they need cli interaction");
-
-
-
-  title("Testing cslib::TimeStamp"); {
-    // Accuracy
-    TimeStamp ts1;
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
-    log(elapsed >= 499 and elapsed <= 510, "TimeStamp should be within 510ms of current time");
-
-    // Correctness of formatting
-    std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
-    std::tm *tm = std::localtime(&now);
-    log(((std::wostringstream() << std::put_time(tm, L"%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_wstr()), "TimeStamp should format time correctly");
-
-    // Making sure TimeStamp returns correct values
-    TimeStamp rightNow;
-    log(rightNow.year() == unsigned(tm->tm_year + 1900), "TimeStamp should return correct year");
-    log(rightNow.month() == unsigned(tm->tm_mon + 1), "TimeStamp should return correct month");
-    log(rightNow.day() == unsigned(tm->tm_mday), "TimeStamp should return correct day");
-    log(rightNow.hour() == unsigned(tm->tm_hour), "TimeStamp should return correct hour");
-    log(rightNow.minute() == unsigned(tm->tm_min), "TimeStamp should return correct minute");
-    log(rightNow.second() == unsigned(tm->tm_sec), "TimeStamp should return correct second");
-
-    // Testing constructor
-    TimeStamp ts2(30, 45, 12, 25, 12, 2023); // 12:45:30 on 25th December 2023
-    log(ts2.year() == 2023, "TimeStamp should return correct year from constructor");
-    log(ts2.month() == 12, "TimeStamp should return correct month from constructor");
-    log(ts2.day() == 25, "TimeStamp should return correct day from constructor");
-    log(ts2.hour() == 12, "TimeStamp should return correct hour from constructor");
-    log(ts2.minute() == 45, "TimeStamp should return correct minute from constructor");
-    log(ts2.second() == 30, "TimeStamp should return correct second from constructor");
-    log(ts2.as_wstr() == L"12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
-
-    // Error handling
-    try {
-      TimeStamp invalidTs(61, 0, 0, 1, 1, 2023); // Invalid second
-      log(false, "TimeStamp should throw an error for invalid time");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Invalid time"), "TimeStamp should throw an error for invalid time");
-    }
-  }
-
-
-
-  title("Testing cslib::Out"); {
-    std::wostringstream woss;
-    Out(woss, L"[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << L'_' << 3.14f << L" wide";
-    wstr_t expected = to_wstr("[") + TimeStamp().as_wstr() + L"]\033[36m[checking cslib::Out] \033[0mnarrow_123_3.14 wide";
-    log(woss.str() == expected, "cslib::Out with a mix of streamable types should format correctly");
-    woss.str(L""); // Clear the stream
-  }
-
-
-
-  title("Testing cslib::Benchmark"); {
-    Benchmark bm1;
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
-    double elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 510, "Benchmark should measure time correctly (took ", elapsed, "ms)");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
-    elapsed = bm1.elapsed_ms();
-    log(elapsed >= 998 && elapsed <= 1020, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
-    bm1.reset();
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
-    elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 510, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
-  }
-
-
-
-  title("Testing cslib::Path"); {
-    const TempFile FILE;
-
-    // Testing ability to read file properties
-    Path rtfFile(FILE.wstr());
-    log(TimeStamp(rtfFile.last_modified()).as_wstr() == TimeStamp().as_wstr(), "Path should have the correct last modified time");
-    log(rtfFile.type() == std::filesystem::file_type::regular, "Path should create a regular file");
-
-    // Depth and position checks
-    Path rofFileParent(FILE.parent());
-    log(rofFileParent.type() == std::filesystem::file_type::directory, "Path should create a directory for the parent path");
-    log(rofFileParent == std::filesystem::temp_directory_path(), "Path parent path should be the temp directory path");
-    #ifdef _WIN32
-      const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
-    #else
-      const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
-    #endif
-    log(rtfFile.depth() == EXPECTED_DEPTH, "Path should have the correct depth for temp file");
-
-    // Equality and inequality checks
-    Path rtoFileCopy(rtfFile);
-    log(rtoFileCopy == rtfFile, "Path == operator should work for same file paths");
-    log(rtoFileCopy != Path("../"), "Path != operator should work for different file paths");
-    log(rtoFileCopy == FILE.wstr().data(), "Path == operator should work for strings");
-    log(rtoFileCopy != (FILE.wstr() + L"???"), "Path != operator should work for different strings");
-
-    // Conversions to other types
-    log(std::wstring(rtfFile) == FILE.wstr(), "Path should convert to wstring correctly");
-    std::filesystem::path& logFileAsFsRef = rtfFile;
-    log(logFileAsFsRef == rtfFile, "Path should convert to filesystem path reference correctly");
-    const std::filesystem::path& logFileAsFsConstRef = rtfFile;
-    log(logFileAsFsConstRef == rtfFile, "Path should convert to filesystem path const reference correctly");
-    std::filesystem::path logFileAsFsCopy = rtfFile;
-    log(logFileAsFsCopy == rtfFile, "Path should convert to filesystem path copy correctly");
-    std::filesystem::path* logFileAsFsPtr = rtfFile;
-    log(logFileAsFsPtr == (void*)&rtfFile, "Path should return its filesystem path pointer correctly");
-    const std::filesystem::path* logFileAsFsConstPtr = rtfFile;
-    log(logFileAsFsConstPtr == (void*)&rtfFile, "Path should return its filesystem path const pointer correctly");
-
-    // Constructors
-    try {
-      Path invalidPath(L"non_existing_path/cslib_test_log.txt");
-      log(false, "Path should throw an error for non-existing path");
-    } catch (const std::filesystem::filesystem_error &e) {
-      log(find_error(e, "No such file or directory"), "Path should throw an error for non-existing path");
-    }
-    try {
-      Path emptyPath(L"../", std::filesystem::file_type::regular);
-      log(false, "Path should recognize between file types at construction");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "initialized with unexpected file type"), "Path should throw an error for unexpected file type at construction");
-    }
-  }
-
-
-
-  title("Testing child classes of cslib::Path"); {
-    TempFolder tempFolder; // Create a temporary folder
-
-    // Creation
-    try {
-      Folder nonExistingFolder(L"its_unlikely_that_there_is_a_folder_with_this_name");
-      log(false, "Folder constructor shouldn't succeed for non-existing folder");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for non-existing folder");
-    }
-    try {
-      Folder emptyFolder(L"");
-      log(false, "Folder constructor shouldn't succeed for empty path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Path empty"), "Folder constructor should throw an error for empty path");
-    }
-    try {
-      Folder invalidTypeFolder(TempFile().wstr());
-      log(false, "Folder constructor shouldn't succeed for file path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for file path");
-    }
-
-    // Valid folder creation
-    log(std::filesystem::exists(tempFolder.wstr()), "Folder should be created at the specified path");
-    log(tempFolder.type() == std::filesystem::file_type::directory, "Folder should be of type directory");
-
-    // Try folder listing and checking
-    {
-      // Put stuff into place
-      TempFolder subFolder;
-      subFolder.move_self_into(tempFolder);
-      TempFolder subsubFolder;
-      subsubFolder.move_self_into(subFolder);
-      TempFile subsubFile1, subFile2, subFile3;
-      subsubFile1.move_self_into(subsubFolder);
-      subFile2.move_self_into(subFolder);
-      subFile3.move_self_into(subFolder);
-      log(subFolder.list().size() == 3, "Folder should have 3 items in the list");
-      wstr_t content = stringify_container(subFolder.list());
-      log(content.find(subsubFolder.wstr()) != wstr_t::npos, "Folder list should contain subfolder");
-      log(subFolder.has(subsubFolder), "Folder .has() method should recognize subfolder");
-      log(content.find(subFile2.wstr()) != wstr_t::npos, "Folder list should contain subFile2");
-      log(subFolder.has(subFile2), "Folder .has() method should recognize subFile2");
-      log(content.find(subFile3.wstr()) != wstr_t::npos, "Folder list should contain subFile3");
-      log(subFolder.has(subFile3), "Folder .has() method should recognize subFile3");
-    }
-    log(tempFolder.list().size() == 0, "Folder should be empty after temporary items are out of scope");
-
-    // Testing copy on disk methods
-    {
-      TempFolder dummyFolder;
-      TempFolder subFolder;
-      TempFile subFile, subsubFile;
-      subFolder.move_self_into(dummyFolder);
-      subFile.move_self_into(dummyFolder);
-      subsubFile.move_self_into(subFolder);
-      TempFolder targetFolder;
-      Folder dummyFolderCopy = dummyFolder.copy_self_into(targetFolder);
-      Folder dummySubCopyFolder;
-      for (const Path &item : dummyFolderCopy.list()) {
-        if (item.type() == std::filesystem::file_type::directory) {
-          dummySubCopyFolder = Folder(item.wstr());
-          break;
-        }
-      }
-      File dummySubFile(dummySubCopyFolder.list().front());
-      log(std::filesystem::exists(targetFolder.wstr()), "Target folder should exist after copy");
-      log(targetFolder.has(dummyFolderCopy), "Target folder should have dummyFolder after copy");
-      log(dummyFolderCopy.has(dummySubCopyFolder), "Dummy folder copy should have subfolder copy");
-      log(dummySubCopyFolder.has(dummySubFile), "Dummy subfolder copy should have subfile copy");
-    }
+    log(woss.str() == "John\nMoney\n", "do_io should read from input stream and write to output stream");
   }
 }

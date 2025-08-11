@@ -647,7 +647,7 @@ namespace cslib {
     bool has(const Road& _item) const {
       return contains(list(), _item);
     }
-    std::vector<std::variant<File, Folder, Path>> typed_list(); // Forward def because File constructor not defined yet
+    std::vector<std::variant<File, Folder, Road>> typed_list(); // Forward def because File constructor not defined yet
 
 
     void move_self_into(Folder& _newLocation) {

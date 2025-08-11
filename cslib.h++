@@ -609,6 +609,8 @@ namespace cslib {
 
 
 
+
+  class File; // Forward def for .list method
   class Folder : public Road { public:
     /*
       Child class of Path that represents a folder.
@@ -645,6 +647,7 @@ namespace cslib {
     bool has(const Road& _item) const {
       return contains(list(), _item);
     }
+    std::vector<std::variant<File, Folder, Path>> typed_list(); // Forward def because File constructor not defined yet
 
 
     void move_self_into(Folder& _newLocation) {
@@ -758,7 +761,7 @@ namespace cslib {
 
 
 
-  std::vector<std::variant<File, Folder, Road>> deduct_list_items(const std::vector<Road>& _list) {
+  std::vector<std::variant<File, Folder, Road>> Folder::typed_list() {
     /*
       Deduct the types of paths in the list.
       Note:

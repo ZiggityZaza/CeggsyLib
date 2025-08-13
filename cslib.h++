@@ -58,7 +58,7 @@ namespace cslib {
   // Jack of all trades (Helper functions and classes)
 
   // Other
-  using csstr = const char *const; // C-style string
+  using cstr = const char *const; // C-style string
   using str_t = std::string;
   using strv_t = std::string_view;
   using byte_t = char;
@@ -77,7 +77,7 @@ namespace cslib {
   // Defined beforehand to avoid circular dependencies
   MACRO to_str(wchar_t _wchar) {
     if (_wchar > 0xFF) // If the character is not representable in a single byte
-      throw std::runtime_error("to_str(wchar_t) cannot convert wide character to narrow string");
+      throw std::runtime_error("Can't convert wide character to narrow ones");
     return std::string(1, static_cast<char>(_wchar));
   }
   MACRO to_str(cptr<wchar_t> _cwstr) {
@@ -87,7 +87,7 @@ namespace cslib {
       ++len;
     for (size_t i = 0; i < len; ++i)
       if (_cwstr[i] > 0xFF) // If the character is not representable in a single byte
-        throw std::runtime_error("to_str(const wchar_t *const) cannot convert wide string to narrow string");
+        throw std::runtime_error("Can't convert wide string to narrow string");
     return std::string(_cwstr, _cwstr + len);
   }
   MACRO to_str(const std::wstring& _wstr) {return std::string(_wstr.begin(), _wstr.end());}
@@ -99,7 +99,7 @@ namespace cslib {
   }
 
   MACRO to_wstr(char _char) { return std::wstring(1, static_cast<wchar_t>(_char)); }
-  MACRO to_wstr(csstr _cstr) {return std::wstring(_cstr, _cstr + std::strlen(_cstr));}
+  MACRO to_wstr(cstr _cstr) {return std::wstring(_cstr, _cstr + std::strlen(_cstr));}
   MACRO to_wstr(const str_t& _str) {return std::wstring(_str.begin(), _str.end());}
   MACRO to_wstr(strv_t _strv) {return std::wstring(_strv.begin(), _strv.end());}
   std::wstring to_wstr(const auto& _anything) {
@@ -198,7 +198,7 @@ namespace cslib {
     /*
       Get the value of an environment variable.
     */
-    const char *const envCStr = getenv(_var.data());
+    cstr envCStr = getenv(_var.data());
     if (envCStr == NULL)
       throw_up("Environment variable '", _var, "' not found");
     return str_t(envCStr);
@@ -258,7 +258,7 @@ namespace cslib {
 
 
 
-  std::vector<strv_t> parse_cli_args(int _argc, csstr _args[]) {
+  std::vector<strv_t> parse_cli_args(int _argc, cstr _args[]) {
     /*
       Parse command line arguments and return them as a
       vector of strings.
@@ -373,8 +373,8 @@ namespace cslib {
     return result;
   }
   void do_io(std::istream& _inStream, std::ostream& _outStream) {
-      _outStream << read_data(_inStream) << std::flush;
-    }
+    _outStream << read_data(_inStream) << std::flush;
+  }
 
 
 
@@ -610,7 +610,6 @@ namespace cslib {
 
 
 
-  class File; // Forward def for .list method
   class Folder : public Road { public:
     /*
       Child class of Path that represents a folder.
@@ -647,7 +646,6 @@ namespace cslib {
     bool has(const Road& _item) const {
       return contains(list(), _item);
     }
-    std::vector<std::variant<File, Folder, Road>> typed_list(); // Forward def because File constructor not defined yet
 
 
     void move_self_into(Folder& _newLocation) {
@@ -710,10 +708,7 @@ namespace cslib {
       return str_t((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
     void edit_text(const auto& content) const {
-      reach_out(std::ios::out | std::ios::trunc) << content;
-    }
-    void add_text(const auto& content) const {
-      reach_out(std::ios::out | std::ios::app) << content;
+      reach_out(std::ios::out) << content;
     }
 
 
@@ -728,14 +723,8 @@ namespace cslib {
         std::istreambuf_iterator<byte_t>()
       };
     }
-    void edit_binary_data(const std::vector<char>& _data) const {
+    void edit_binary_data(const std::vector<byte_t>& _data) const {
       std::ofstream file(reach_out(std::ios::binary | std::ios::trunc));
-      file.write(_data.data(), _data.size());
-      if (!file.good())
-        throw_up("Failed to write into file ", isAt);
-    }
-    void add_binary_data(const std::vector<char>& _data) const {
-      std::ofstream file(reach_out(std::ios::binary | std::ios::app));
       file.write(_data.data(), _data.size());
       if (!file.good())
         throw_up("Failed to write into file ", isAt);
@@ -761,15 +750,9 @@ namespace cslib {
 
 
 
-  std::vector<std::variant<File, Folder, Road>> Folder::typed_list() {
-    /*
-      Deduct the types of paths in the list.
-      Note:
-        Defined after the class declarations
-        to ensure all types are known.
-    */
+  std::vector<std::variant<File, Folder, Road>> deduct_typed_list(const Folder& _lookIn) {
     std::vector<std::variant<File, Folder, Road>> result;
-    for (const Road& entry : _list)
+    for (const Road& entry : _lookIn.list())
       if (entry.type() == std::filesystem::file_type::regular)
         result.emplace_back(File(entry));
       else if (entry.type() == std::filesystem::file_type::directory)
@@ -826,21 +809,8 @@ namespace cslib {
         std::filesystem::remove(isAt);
     }
 
-    TempFile(const TempFile& _other) {
-      /*
-        Create a copy of a file with the
-        same content but different name.
-        Note:
-          The original file will not be deleted.
-      */
-      isAt = _other.isAt; // Copy the path
-      str_t newName;
-      do {
-        newName = "cslibTempFile_" + scramble_filename() + ".tmp";
-      } while (std::filesystem::exists(std::filesystem::temp_directory_path() / newName));
-      isAt = File(std::filesystem::temp_directory_path() / newName, true).isAt; // Ensure the file does not already exist
-      // Copy the content
-    }
+    TempFile(const TempFile&) = delete;
+    TempFile& operator=(const TempFile&) = delete;
   };
 
   TempFile& make_runtime_file() {
@@ -911,24 +881,17 @@ namespace cslib {
 
 
 
-  MACRO CONFIG_FILE_NAME = "cslib_configs.ini";
+  MACRO CONFIG_FILE_NAME = "@cslib_configs.ini";
+  File find_configsFile(bool _createIfNotExists) {
   /*
     Configuration file for cslib. The file is used
     to store configuration options for cslib and
     other libraries that use cslib.
   */
-  File find_configsFile(bool _createIfNotExists) {
-    /*
-      Get the cslib configs file in the application data folder.
-      If the file does not exist, it will be created.
-      Returns a File object.
-    */
     Folder appDataFolder = [] {
       /*
         Find the application data folder for the current user.
         Returns a Folder object pointing to the folder.
-        Note:
-          If the folder does not exist, it will be created.
       */
       std::filesystem::path appDataPath;
       #ifdef _WIN32
@@ -981,4 +944,43 @@ namespace cslib {
     }
     return configs;
   }
+
+
+
+  template <typename T>
+  class TimeMashine { public:
+    /*
+      Capture variables and return when needed
+    */
+    std::deque<T> history;
+    TimeMashine& operator=(const T& _t) {
+      history.push_back(_t);
+      return *this;
+    }
+    T& snapshot() {
+      if (history.empty())
+        throw_up("No history available");
+      return history.back();
+    }
+    void restore(const T& _previous) {
+      /*
+        Destruct all new inserted `T`s
+        until the pointer of _previous
+        is reached
+      */
+      if (history.empty())
+        throw_up("No history available");
+
+      // Make sure pointer exists
+      bool found = false;
+      for (const T& snapshot : history)
+        if (&snapshot == &_previous)
+          found = true;
+      if (!found)
+        throw_up("Pointer to restore not found in history");
+
+      while (&history.back() != &_previous)
+        history.pop_back();
+    }
+  };
 } // namespace cslib

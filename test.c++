@@ -18,9 +18,21 @@ void log(bool conditionResult, _Args&&... conditionsExplained) {
   std::cout << std::endl;
 }
 
-bool find_error(const std::runtime_error& e, std::string_view lookFor) {
+bool find_error(const std::exception& e, std::string_view lookFor) {
   return std::string(e.what()).find(lookFor) != std::string::npos;
 }
+
+bool did_throw(const auto& _func, std::string_view _expectError) {
+  try {
+    _func();
+    return false;
+  }
+  catch (const std::exception& e) {
+    return find_error(e, _expectError);
+  }
+}
+
+#define fn(...) [&] { __VA_ARGS__; } // inlined function aka lambda
 
 
 Benchmark bm;
@@ -51,20 +63,15 @@ int main() {
     static_assert(to_str(std::wstring(L"This is a pretty long string")) == "This is a pretty long string", "to_str(const wstr_t&) long string constexpr");
     static_assert(to_str(std::wstring_view(L"Hello World")) == "Hello World", "to_str(const wstrv_t&) constexpr");
     // Cant constexpr to_str(const auto&) because it uses std::ostringstream
-    try {
-      to_str(L'\x100'); // Should throw
-      log(false, "to_str(wchar_t) should throw for non-representable character");
-    }
-    catch (const std::runtime_error &e) {
-      log(find_error(e, "to_str(wchar_t) cannot convert wide character to narrow string"), "to_str(wchar_t) throws for non-representable character");
-    }
-    try {
-      to_str(L"Hello \x100 World"); // Should throw
-      log(false, "to_str(const wchar_t *const) should throw for non-representable character");
-    }
-    catch (const std::runtime_error &e) {
-      log(find_error(e, "to_str(const wchar_t *const) cannot convert wide string to narrow string"), "to_str(const wchar_t *const) throws for non-representable character");
-    }
+    log(did_throw(fn(to_str(L'\x100')), "Can't convert wide character to narrow ones"), "to_str(wchar_t) should throw for non-representable character");
+    log(did_throw(fn(to_str(L"Hello \x100 World")), "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) should throw for non-representable character");
+    // try {
+    //   to_str(L"Hello \x100 World"); // Should throw
+    //   log(false, "to_str(const wchar_t *const) should throw for non-representable character");
+    // }
+    // catch (const std::runtime_error &e) {
+    //   log(find_error(e, "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) throws for non-representable character");
+    // }
   }
 
 
@@ -525,15 +532,15 @@ int main() {
     road.rename_self_to(previousName); // Restore previous name
     try {
       road.rename_self_to("/someFolder");
-      log(false, "Road should throw an error when trying to change location too");
+      log(false, "Road should throw an error when trying to change location too (didn't catch)");
     } catch (const any_error &e) {
-      log(find_error(e, "' contains path separators"), "Road should throw an error when trying to change location");
+      log(find_error(e, "' contains path separators"), "Road should throw an error when trying to change location (wrong result)");
     }
     {
       TempFile occupyFileName;
       try {
         road.rename_self_to(occupyFileName.name());
-        log(false, "Road should throw an error when trying to rename self to something existing");
+        log(false, "Road should throw an error when trying to rename self to something existing (didn't catch)");
       } catch (const any_error &e) {
         log(find_error(e, "' already exists"), "Road should throw an error when trying to rename self to something existing");
       }

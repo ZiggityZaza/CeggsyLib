@@ -2,6 +2,8 @@
 using namespace cslib;
 
 
+int failedTests = 0;
+
 void title(const auto& title) {
   std::cout << "\n\033[1;34m" << title << "\033[0m\n";
 }
@@ -16,8 +18,10 @@ enum error_throw_kind_issue {
 void log(bool conditionResult, const auto&... conditionsExplained) {
   if (conditionResult)
     std::cout << "\033[1;32m[PASSED]\033[0m";
-  else
+  else {
     std::cout << "\033[1;31m[FAILED]\033[0m";
+    failedTests++;
+  }
   std::cout << " > ";
   ((std::cout << std::forward<decltype(conditionsExplained)>(conditionsExplained)), ...);
   std::cout << std::endl;
@@ -29,11 +33,14 @@ void log(error_throw_kind_issue kind, const auto&... conditionsExplained) {
   // Same as above but listing error type
   if (kind == ALL_GOOD)
     std::cout << "\033[1;32m[PASSED]\033[0m";
-  else
+  else {
     std::cout << "\033[1;31m[FAILED]\033[0m";
+    failedTests++;
+  }
   std::cout << " > ";
   ((std::cout << std::forward<decltype(conditionsExplained)>(conditionsExplained)), ...);
   switch (kind) {
+    case ALL_GOOD: std::cout << " (all good)"; break;
     case WRONG_WHAT: std::cout << " (wrong .what)"; break;
     case EXCEPT_T_WRONG: std::cout << " (wrong exception type)"; break;
     case DIDNT_THROW: std::cout << " (didn't throw at all)"; break;
@@ -59,7 +66,7 @@ bool did_throw(const auto& _func, std::string_view _expectError) {
 }
 
 template <typename Exception_T = cslib::any_error>
-error_throw_kind_issue throw_result(const auto& _func, std::string_view _expectError) {
+error_throw_kind_issue try_result(const auto& _func, std::string_view _expectError) {
   try {
     _func();
     return DIDNT_THROW;
@@ -69,8 +76,11 @@ error_throw_kind_issue throw_result(const auto& _func, std::string_view _expectE
       return ALL_GOOD;
     return WRONG_WHAT;
   }
-  catch (...) {
+  catch (const std::exception& e) {
     return EXCEPT_T_WRONG;
+  }
+  catch (...) {
+    throw std::runtime_error("Caught unknown exception"); // Can't continue
   }
 }
 
@@ -105,8 +115,8 @@ int main() {
     static_assert(to_str(std::wstring(L"This is a pretty long string")) == "This is a pretty long string", "to_str(const wstr_t&) long string constexpr");
     static_assert(to_str(std::wstring_view(L"Hello World")) == "Hello World", "to_str(const wstrv_t&) constexpr");
     // Cant constexpr to_str(const auto&) because it uses std::ostringstream
-    log(throw_result<std::runtime_error>(fn(to_str(L'\x100')), "Can't convert wide character to narrow ones"), "to_str(wchar_t) should throw for non-representable character");
-    log(throw_result<std::runtime_error>(fn(to_str(L"Hello \x100 World")), "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) should throw for non-representable character");
+    log(try_result<std::runtime_error>(fn(to_str(L'\x100')), "Can't convert wide character to narrow ones"), "to_str(wchar_t) should throw for non-representable character");
+    log(try_result<std::runtime_error>(fn(to_str(L"Hello \x100 World")), "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) should throw for non-representable character");
   }
 
 
@@ -145,18 +155,9 @@ int main() {
   title("Testing cslib::any_error and throw_up"); {
     std::ostringstream shouldBeWhat; // e.what()
     shouldBeWhat << "cslib::any_error called in workspace " << std::filesystem::current_path();
-    shouldBeWhat << " on line " << __LINE__ + 3 << " because: "; // throw_up is called 3 lines beneath
+    shouldBeWhat << " on line " << __LINE__ + 2 << " because: "; // throw_up is called 2 lines beneath
     shouldBeWhat << "CSLIB_TEST 1234.56";
-    try {
-      throw_up("CSLIB", '_', L"TEST", L' ', 123, 4.56f);
-      log(false, "throw_up should throw an error");
-    }
-    catch (const cslib::any_error &e) {
-      log(e.what() == shouldBeWhat.str(), "cslib::any_error should have the correct error message");
-    }
-    catch (...) {
-      log(false, "throw_up should throw of type cslib::any_error");
-    }
+    log(try_result(fn(throw_up("CSLIB", '_', L"TEST", L' ', 123, 4.56f)), shouldBeWhat.str()), "throw_up should throw an error");
   }
 
 
@@ -173,14 +174,8 @@ int main() {
 
 
   title("Testing cslib::sh_call"); {
-    sh_call("echo cslib testing"); // Shouldn't throw
-    try {
-      sh_call("non_existing_command");
-      log(false, "sh_call should throw an error for non-existing command (didn't throw)");
-    }
-    catch (const cslib::any_error &e) {
-      log(find_error(e, "Command failed or not found: '"), "sh_call should throw an error for non-existing command (wrong throw)");
-    }
+    log(sh_call("echo") == "\n", "system call to echo");
+    log(try_result(fn(sh_call("non_existing_command")), "Command failed or not found: 'non_existing_command'"), "sh_call should throw an error for non-existing command");
   }
 
 
@@ -367,12 +362,7 @@ int main() {
     log(parsedArgs1.at(0) == "arg1", "First argument should be 'arg1'");
     log(parsedArgs1.at(1) == "arg2", "Second argument should be 'arg2'");
     log(parsedArgs1.at(2) == "arg3", "Third argument should be 'arg3'");
-    try {
-      parse_cli_args(0, nullptr);
-      log(false, "parse_cli_args should throw an error for zero arguments");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "No command line arguments provided"), "parse_cli_args should throw an error for zero arguments");
-    }
+    log(try_result<std::runtime_error>(fn(parse_cli_args(0, nullptr)), "No command line arguments provided"), "parse_cli_args should throw an error for zero arguments");
     const char* args2[] = {"program"};
     std::vector<strv_t> parsedArgs2 = parse_cli_args(1, args2);
     log(parsedArgs2.empty(), "parse_cli_args should return an empty vector for no arguments");
@@ -406,18 +396,8 @@ int main() {
     log(shorten_begin(str, 10) == "... string", "shorten_begin with length 10");
     log(shorten_end(str, 100) == str, "shorten_end with length greater than string length should return original string");
     log(shorten_begin(str, 100) == str, "shorten_begin with length greater than string length should return original string");
-    try {
-      shorten_end(str, 2);
-      log(false, "shorten_end should throw an error for maxLength less than TRIM_WITH length");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_end should throw an error for maxLength less than TRIM_WITH length");
-    }
-    try {
-      shorten_begin(str, 2);
-      log(false, "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
-    }
+    log(try_result(fn(shorten_end(str, 2)), "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_end should throw an error for maxLength less than TRIM_WITH length");
+    log(try_result(fn(shorten_begin(str, 2)), "maxLength must be at least 3 (TRIM_WITH length)"), "shorten_begin should throw an error for maxLength less than TRIM_WITH length");
     static_assert(shorten_end("This is a pretty long c-string", 10) == "This is...", "shorten_end constexpr with length 10");
     static_assert(shorten_begin("This is a pretty long c-string", 10) == "...-string", "shorten_begin constexpr with length 10");
     static_assert(shorten_end("This is a pretty long c-string", 100) == "This is a pretty long c-string", "shorten_end constexpr with length greater than string length should return original string");
@@ -444,7 +424,7 @@ int main() {
   title("Testing cslib::roll_dice"); {
     int min = -3, max = 3;
     bool correctRange = true;
-    for ([[maybe_unused]] int64_t _ : range(100'000)) {
+    for ([[maybe_unused]] auto _ : range(100'000)) {
       int result = roll_dice(min, max);
       if (!(result >= min && result <= max))
         correctRange = false;
@@ -505,12 +485,7 @@ int main() {
     log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
 
     // Error handling
-    try {
-      TimeStamp invalidTs(61, 0, 0, 1, 1, 2023); // Invalid second
-      log(false, "TimeStamp should throw an error for invalid time");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Invalid time"), "TimeStamp should throw an error for invalid time");
-    }
+    log(try_result(fn(TimeStamp(61, 0, 0, 1, 1, 2023)), "Invalid time"), "TimeStamp should throw an error for invalid time (seconds > 59)");
   }
 
 
@@ -573,12 +548,7 @@ int main() {
     }
     {
       TempFile occupyFileName;
-      try {
-        road.rename_self_to(occupyFileName.name());
-        log(false, "Road should throw an error when trying to rename self to something existing (didn't catch)");
-      } catch (const cslib::any_error &e) {
-        log(find_error(e, " already exists"), "Road should throw an error when trying to rename self to something existing");
-      }
+      log(try_result(fn(road.rename_self_to(occupyFileName.name())), " already exists"), "Road should throw an error when trying to rename self to something existing");
     }
 
     // Equality and inequality checks
@@ -602,18 +572,8 @@ int main() {
     log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
 
     // Constructors
-    try {
-      Road invalidPath("non_existing_path/cslib_test_log.txt");
-      log(false, "Road should throw an error for non-existing path");
-    } catch (const std::filesystem::filesystem_error &e) {
-      log(find_error(e, "No such file or directory"), "Road should throw an error for non-existing path");
-    }
-    try {
-      Road emptyPath("../", std::filesystem::file_type::regular);
-      log(false, "Road should recognize between file types at construction");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "initialized with unexpected file type"), "Road should throw an error for unexpected file type at construction");
-    }
+    log(try_result<std::filesystem::filesystem_error>(fn(Road invalidPath("non_existing_path/cslib_test_log.txt")), "No such file or directory"), "Road should throw an error for non-existing path");
+    log(try_result(fn(Road emptyPath("../", std::filesystem::file_type::regular)), "initialized with unexpected file type"), "Road should throw an error for unexpected file type at construction");
   }
 
 
@@ -622,24 +582,9 @@ int main() {
     TempFolder tempFolder;
 
     // Creation
-    try {
-      Folder nonExistingFolder("_its_unlikely_that_there_is_a_folder_with_this_name_");
-      log(false, "Folder constructor shouldn't succeed for non-existing folder");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for non-existing folder"); // Implicit for stl ::is_directory
-    }
-    try {
-      Folder emptyFolder("");
-      log(false, "Folder constructor shouldn't succeed for empty path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Path empty"), "Folder constructor should throw an error for empty path");
-    }
-    try {
-      Folder invalidTypeFolder(TempFile().str());
-      log(false, "Folder constructor shouldn't succeed for file path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a directory"), "Folder constructor should throw an error for file path");
-    }
+    log(try_result(fn(Folder nonExistingFolder("_its_unlikely_that_there_is_a_folder_with_this_name_")), "is not a directory"), "Folder constructor should throw an error for non-existing folder"); // Implicit for stl ::is_directory
+    log(try_result(fn(Folder emptyFolder("")), "Path empty"), "Folder constructor should throw an error for empty path");
+    log(try_result(fn(Folder invalidTypeFolder(TempFile().str())), "is not a directory"), "Folder constructor should throw an error for file path");
 
     // Valid folder creation
     log(std::filesystem::exists(tempFolder.wstr()), "Folder should be created at the specified path");
@@ -697,28 +642,15 @@ int main() {
     TempFile tempFile;
 
     // Creation
-    try {
-      File nonExistingFile("_its_unlikely_that_there_is_a_file_with_this_name_");
-      log(false, "File constructor shouldn't succeed for non-existing file");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
-    }
-    try {
-      File emptyFile("");
-      log(false, "File constructor shouldn't succeed for empty path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "Path empty"), "File constructor should throw an error for empty path");
-    }
-    try {
-      File invalidTypeFile(TempFolder().str());
-      log(false, "File constructor shouldn't succeed for directory path");
-    } catch (const std::runtime_error &e) {
-      log(find_error(e, "is not a regular file"), "File constructor should throw an error for directory path");
-    }
+    log(try_result(fn(File nonExistingFile("_its_unlikely_that_there_is_a_file_with_this_name_")), "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
+    log(try_result(fn(File emptyFile("")), "Path empty"), "File constructor should throw an error for empty path");
+    log(try_result(fn(File invalidTypeFile(TempFolder().str())), "is not a regular file"), "File constructor should throw an error for directory path");
 
     // Valid file creation
     log(std::filesystem::exists(tempFile.wstr()), "File should be created at the specified path");
     log(tempFile.type() == std::filesystem::file_type::regular, "File should be of type regular");
-
   }
+
+
+  std::cout << "\n >> Failed tests: " << failedTests << std::endl;
 }

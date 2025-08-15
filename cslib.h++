@@ -778,7 +778,7 @@ namespace cslib {
 
 
 
-  MACRO RANDOM_ENTRY_NAME_LEN = 2; // n^59 possible combinations
+  MACRO RANDOM_ENTRY_NAME_LEN = 2; // n^59 possible combinations hehe
   str_t scramble_filename() {
     /*
       Generate a random filename with a length of `RANDOM_ENTRY_NAME_LEN`
@@ -827,21 +827,6 @@ namespace cslib {
     TempFile& operator=(const TempFile&) = delete;
   };
 
-  TempFile& make_runtime_file() {
-    /*
-      Return a reference to a temporary file that is created
-      at runtime. The file is created in a static deque to
-      ensure that it is not deleted until the program exits.
-      Note:
-        Using deque cuz vector reallocation causes the
-        file to be deleted and/or its memory address to
-        change, which would lead to undefined behavior.
-    */
-    static std::deque<TempFile> runtimeFiles;
-    runtimeFiles.emplace_back();
-    return runtimeFiles.back();
-  }
-
 
 
   class TempFolder : public Folder { public:
@@ -877,125 +862,6 @@ namespace cslib {
 
     TempFolder(const TempFolder&) = delete;
     TempFolder& operator=(const TempFolder&) = delete;
-  };
-
-  Folder& make_runtime_folder() {
-    /*
-      Return a reference to a temporary folder that is created
-      at runtime. The folder is created in a static deque to
-      ensure that it is not deleted until the program exits.
-      Note:
-        Same as make_runtime_file, using deque to avoid
-        reallocation issues.
-    */
-    static std::deque<TempFolder> runtimeFolders;
-    runtimeFolders.emplace_back();
-    return runtimeFolders.back();
-  }
-
-
-
-  MACRO CONFIG_FILE_NAME = "@cslib_configs.ini";
-  File find_configsFile(bool _createIfNotExists) {
-  /*
-    Configuration file for cslib. The file is used
-    to store configuration options for cslib and
-    other libraries that use cslib.
-  */
-    Folder appDataFolder = [] {
-      /*
-        Find the application data folder for the current user.
-        Returns a Folder object pointing to the folder.
-      */
-      std::filesystem::path appDataPath;
-      #ifdef _WIN32
-        appDataPath = std::filesystem::path(get_env("APPDATA"));
-      #else
-        try {
-          appDataPath = std::filesystem::path(get_env("XDG_CONFIG_HOME"));
-        } catch (cslib::any_error&) {
-          appDataPath = std::filesystem::path(get_env("HOME")) / ".config";
-        }
-      #endif
-      return Folder(appDataPath, false); // Don't create if not exists
-    }();
-    return File(appDataFolder.isAt / CONFIG_FILE_NAME, _createIfNotExists); // Create if not exists
-  }
-
-
-
-  std::map<str_t, std::map<str_t, str_t>> parse_configsFile(const File& _configsFile) {
-    std::map<str_t, std::map<str_t, str_t>> configs;
-    str_t content = _configsFile.read_text();
-    str_t currentSection;
-    for (strv_t line : separate(content, "\n")) {
-      str_t trimmedLine(line);
-      trimmedLine.erase(0, trimmedLine.find_first_not_of(" \t")); // Remove leading whitespace
-      trimmedLine.erase(trimmedLine.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-      if (trimmedLine.empty() or trimmedLine.at(0) == ';')
-        continue; // Skip empty lines and comments
-      if (trimmedLine.at(0) == '[' and trimmedLine.back() == ']') {
-        // Section header
-        currentSection = trimmedLine.substr(1, trimmedLine.length() - 2);
-        configs.insert({currentSection, {}});
-      } else {
-        // Key-value pair
-        size_t eqPos = trimmedLine.find('=');
-        if (eqPos == str_t::npos)
-          throw_up("Invalid line in config file: '", line, "'");
-        str_t key = trimmedLine.substr(0, eqPos);
-        str_t value = trimmedLine.substr(eqPos + 1);
-        key.erase(0, key.find_first_not_of(" \t")); // Remove leading whitespace
-        key.erase(key.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-        value.erase(0, value.find_first_not_of(" \t")); // Remove leading whitespace
-        value.erase(value.find_last_not_of(" \t") + 1); // Remove trailing whitespace
-        if (currentSection.empty())
-          throw_up("Key-value pair without section in config file: '", line, "'");
-        if (configs.find(currentSection) == configs.end())
-          throw_up("Key-value pair in unknown section in config file: '", line, "'");
-        configs[currentSection].insert({key, value});
-      }
-    }
-    return configs;
-  }
-
-
-
-  template <typename T>
-  class TimeMashine { public:
-    /*
-      Capture variables and return when needed
-    */
-    std::deque<T> history;
-    TimeMashine& operator=(const T& _t) {
-      history.push_back(_t);
-      return *this;
-    }
-    T& snapshot() {
-      if (history.empty())
-        throw_up("No history available");
-      return history.back();
-    }
-    void restore(const T& _previous) {
-      /*
-        Destruct all new inserted `T`s
-        until the pointer of _previous
-        is reached
-      */
-      if (history.empty())
-        throw_up("No history available");
-
-      // Make sure pointer exists
-      bool found = false;
-      for (const T& snapshot : history)
-        if (&snapshot == &_previous)
-          found = true;
-      if (!found)
-        throw_up("Pointer to restore not found in history");
-
-      while (&history.back() != &_previous)
-        history.pop_back();
-    }
   };
 
 

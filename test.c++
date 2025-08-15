@@ -540,12 +540,7 @@ int main() {
     road.rename_self_to(tempName); // Warning: FILE now points to invalid file
     log(road.name() == tempName, "Road should rename itself correctly");
     road.rename_self_to(previousName); // Restore previous name
-    try {
-      road.rename_self_to("/someFolder");
-      log(false, "Road should throw an error when trying to change location too (didn't catch)");
-    } catch (const any_error &e) {
-      log(find_error(e, "' contains path separators"), "Road should throw an error when trying to change location (wrong result)");
-    }
+    log(try_result(fn(road.rename_self_to("/someFolder")), "contains path separators"), "Road should throw an error when trying to change location");
     {
       TempFile occupyFileName;
       log(try_result(fn(road.rename_self_to(occupyFileName.name())), " already exists"), "Road should throw an error when trying to rename self to something existing");
@@ -649,6 +644,9 @@ int main() {
     // Valid file creation
     log(std::filesystem::exists(tempFile.wstr()), "File should be created at the specified path");
     log(tempFile.type() == std::filesystem::file_type::regular, "File should be of type regular");
+
+    // File I/O
+    
   }
 
 

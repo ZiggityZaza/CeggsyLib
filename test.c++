@@ -6,16 +6,42 @@ void title(const auto& title) {
   std::cout << "\n\033[1;34m" << title << "\033[0m\n";
 }
 
+enum error_throw_kind_issue {
+  WRONG_WHAT, // .what doesn't match expected
+  EXCEPT_T_WRONG, // Exception type doesn't match expected
+  DIDNT_THROW, // Function didn't throw
+  ALL_GOOD // Throwing behavior is as expected
+};
 
-template <typename... _Args>
-void log(bool conditionResult, _Args&&... conditionsExplained) {
+void log(bool conditionResult, const auto&... conditionsExplained) {
   if (conditionResult)
     std::cout << "\033[1;32m[PASSED]\033[0m";
   else
     std::cout << "\033[1;31m[FAILED]\033[0m";
   std::cout << " > ";
-  ((std::cout << std::forward<_Args>(conditionsExplained)), ...);
+  ((std::cout << std::forward<decltype(conditionsExplained)>(conditionsExplained)), ...);
   std::cout << std::endl;
+  if (!conditionResult)
+    cslib::pause(1000);
+}
+
+void log(error_throw_kind_issue kind, const auto&... conditionsExplained) {
+  // Same as above but listing error type
+  if (kind == ALL_GOOD)
+    std::cout << "\033[1;32m[PASSED]\033[0m";
+  else
+    std::cout << "\033[1;31m[FAILED]\033[0m";
+  std::cout << " > ";
+  ((std::cout << std::forward<decltype(conditionsExplained)>(conditionsExplained)), ...);
+  switch (kind) {
+    case WRONG_WHAT: std::cout << " (wrong .what)"; break;
+    case EXCEPT_T_WRONG: std::cout << " (wrong exception type)"; break;
+    case DIDNT_THROW: std::cout << " (didn't throw at all)"; break;
+    default: std::cout << " (unknown error type)"; break;
+  }
+  std::cout << std::endl;
+  if (kind != ALL_GOOD)
+    cslib::pause(1000);
 }
 
 bool find_error(const std::exception& e, std::string_view lookFor) {
@@ -29,6 +55,22 @@ bool did_throw(const auto& _func, std::string_view _expectError) {
   }
   catch (const std::exception& e) {
     return find_error(e, _expectError);
+  }
+}
+
+template <typename Exception_T = cslib::any_error>
+error_throw_kind_issue throw_result(const auto& _func, std::string_view _expectError) {
+  try {
+    _func();
+    return DIDNT_THROW;
+  }
+  catch (const Exception_T& e) {
+    if (find_error(e, _expectError))
+      return ALL_GOOD;
+    return WRONG_WHAT;
+  }
+  catch (...) {
+    return EXCEPT_T_WRONG;
   }
 }
 
@@ -63,15 +105,8 @@ int main() {
     static_assert(to_str(std::wstring(L"This is a pretty long string")) == "This is a pretty long string", "to_str(const wstr_t&) long string constexpr");
     static_assert(to_str(std::wstring_view(L"Hello World")) == "Hello World", "to_str(const wstrv_t&) constexpr");
     // Cant constexpr to_str(const auto&) because it uses std::ostringstream
-    log(did_throw(fn(to_str(L'\x100')), "Can't convert wide character to narrow ones"), "to_str(wchar_t) should throw for non-representable character");
-    log(did_throw(fn(to_str(L"Hello \x100 World")), "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) should throw for non-representable character");
-    // try {
-    //   to_str(L"Hello \x100 World"); // Should throw
-    //   log(false, "to_str(const wchar_t *const) should throw for non-representable character");
-    // }
-    // catch (const std::runtime_error &e) {
-    //   log(find_error(e, "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) throws for non-representable character");
-    // }
+    log(throw_result<std::runtime_error>(fn(to_str(L'\x100')), "Can't convert wide character to narrow ones"), "to_str(wchar_t) should throw for non-representable character");
+    log(throw_result<std::runtime_error>(fn(to_str(L"Hello \x100 World")), "Can't convert wide string to narrow string"), "to_str(const wchar_t *const) should throw for non-representable character");
   }
 
 
@@ -141,10 +176,10 @@ int main() {
     sh_call("echo cslib testing"); // Shouldn't throw
     try {
       sh_call("non_existing_command");
-      log(false, "sh_call should throw an error for non-existing command");
+      log(false, "sh_call should throw an error for non-existing command (didn't throw)");
     }
-    catch (const std::runtime_error &e) {
-      log(find_error(e, "Failed to execute command: 'non_existing_command'"), "sh_call should throw an error for non-existing command");
+    catch (const cslib::any_error &e) {
+      log(find_error(e, "Command failed or not found: '"), "sh_call should throw an error for non-existing command (wrong throw)");
     }
   }
 
@@ -541,8 +576,8 @@ int main() {
       try {
         road.rename_self_to(occupyFileName.name());
         log(false, "Road should throw an error when trying to rename self to something existing (didn't catch)");
-      } catch (const any_error &e) {
-        log(find_error(e, "' already exists"), "Road should throw an error when trying to rename self to something existing");
+      } catch (const cslib::any_error &e) {
+        log(find_error(e, " already exists"), "Road should throw an error when trying to rename self to something existing");
       }
     }
 

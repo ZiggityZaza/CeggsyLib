@@ -90,8 +90,8 @@ namespace cslib {
         throw std::runtime_error("Can't convert wide string to narrow string");
     return std::string(_cwstr, _cwstr + len);
   }
-  MACRO to_str(const std::wstring& _wstr) {return std::string(_wstr.begin(), _wstr.end());}
-  MACRO to_str(std::wstring_view _wstrv) {return std::string(_wstrv.begin(), _wstrv.end());}
+  MACRO to_str(std::wstring_view _wstrv) {return to_str(_wstrv.data());}
+  MACRO to_str(const std::wstring& _wstr) { return to_str(_wstr.data()); }
   str_t to_str(const auto& _anything) {
     std::ostringstream oss;
     oss << _anything;
@@ -149,12 +149,26 @@ namespace cslib {
 
 
 
-  void sh_call(strv_t _command) {
+  str_t sh_call(strv_t _command) {
     /*
-      Blocking system call
+      Non-blocking system call that returns the
+      output of the command. Throws if the command
+      does not exist or fails to execute.
+      Important Note:
+        This method is VERY prone to injections
     */
-    if (system(_command.data()) != 0)  
-      throw_up("Failed to execute command: '", _command, "'");
+    std::array<char, 128> buffer = {};
+    str_t result;
+    int exitCode = 0;
+    FILE* pipe = popen(_command.data(), "r");
+    if (!pipe)
+      throw_up("Failed to open pipe");
+    while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
+      result += buffer.data();
+    exitCode = pclose(pipe);
+    if (exitCode != 0)
+      throw_up("Command failed or not found: '", _command, "' (exit code ", exitCode, ")");
+    return result;
   }
 
 
@@ -983,4 +997,17 @@ namespace cslib {
         history.pop_back();
     }
   };
+
+
+
+  str_t wget(strv_t _url) {
+    /*
+      Download the content of the given URL using wget
+      and return it as a string.
+      Note:
+        This function requires wget to be installed on the system.
+        It will throw an error if wget is not found or fails to execute.
+    */
+    return sh_call("wget -q -O - " + str_t(_url.data()));
+  }
 } // namespace cslib

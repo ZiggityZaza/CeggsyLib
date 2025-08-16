@@ -584,7 +584,7 @@ namespace cslib {
         Note:
           The new name must not contain any path separators.
       */
-      if (_newName.find(std::filesystem::path::preferred_separator) != std::wstring::npos)
+      if (_newName.find(std::filesystem::path::preferred_separator) != std::string::npos)
         throw_up("New name '", _newName, "' contains path separators");
       std::filesystem::path newPath = isAt.parent_path() / _newName;
       if (std::filesystem::exists(newPath))
@@ -624,6 +624,7 @@ namespace cslib {
 
 
 
+  class File;
   class Folder : public Road { public:
     /*
       Child class of Path that represents a folder.
@@ -657,6 +658,7 @@ namespace cslib {
         entries.emplace_back(Road(entry.path()));
       return entries;
     }
+    std::vector<std::variant<File, Folder, Road>> typed_list() const;
     bool has(const Road& _item) const {
       return contains(list(), _item);
     }
@@ -721,12 +723,12 @@ namespace cslib {
       std::ifstream file(reach_in(std::ios::in));
       return str_t((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
     }
-    void edit_text(const auto& content) const {
-      reach_out(std::ios::out) << content;
+    void edit_text(const auto& _newText) const {
+      reach_out(std::ios::out) << _newText;
     }
 
 
-    std::vector<byte_t> read_data() const {
+    std::vector<byte_t> read_binary() const {
       /*
         Streambufs for byte-by-byte reading
         for raw data reading.
@@ -737,36 +739,36 @@ namespace cslib {
         std::istreambuf_iterator<byte_t>()
       };
     }
-    void edit_binary_data(const std::vector<byte_t>& _data) const {
+    void edit_binary(const auto *const _newData, size_t _len) const {
       std::ofstream file(reach_out(std::ios::binary | std::ios::trunc));
-      file.write(_data.data(), _data.size());
+      file.write(reinterpret_cast<const char*>(_newData), _len);
       if (!file.good())
         throw_up("Failed to write into file ", isAt);
     }
 
-    std::wstring extension() const {return isAt.extension().wstring();}
+    std::string extension() const {return isAt.extension().string();}
     size_t bytes() const {return std::filesystem::file_size(isAt);}
 
 
     void move_self_into(Folder& _newLocation) {
-      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
+      if (std::filesystem::exists(_newLocation / isAt.filename()))
         throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
-      isAt = _newLocation.isAt / isAt.filename(); // Update the path
+      std::filesystem::rename(isAt, _newLocation / isAt.filename());
+      isAt = _newLocation / isAt.filename(); // Update the path
     }
 
 
     File copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::none) const {
-      std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
-      return File(_newLocation.isAt / isAt.filename());
+      std::filesystem::copy(isAt, _newLocation / isAt.filename(), _options);
+      return File(_newLocation / isAt.filename());
     }
   };
 
 
 
-  std::vector<std::variant<File, Folder, Road>> deduct_typed_list(const Folder& _lookIn) {
+  std::vector<std::variant<File, Folder, Road>> Folder::typed_list() const {
     std::vector<std::variant<File, Folder, Road>> result;
-    for (const Road& entry : _lookIn.list())
+    for (const Road& entry : this->list())
       if (entry.type() == std::filesystem::file_type::regular)
         result.emplace_back(File(entry));
       else if (entry.type() == std::filesystem::file_type::directory)
@@ -778,15 +780,15 @@ namespace cslib {
 
 
 
-  MACRO RANDOM_ENTRY_NAME_LEN = 2; // n^59 possible combinations hehe
+  MACRO SCRAMBLE_LEN = 2; // n^59 possible combinations hehe
   str_t scramble_filename() {
     /*
-      Generate a random filename with a length of `RANDOM_ENTRY_NAME_LEN`
+      Generate a random filename with a length of `SCRAMBLE_LEN`
       characters. The filename consists of uppercase and lowercase
       letters and digits.
     */
     std::ostringstream randomName;
-    for ([[maybe_unused]] auto _ : range(RANDOM_ENTRY_NAME_LEN))
+    for ([[maybe_unused]] auto _ : range(SCRAMBLE_LEN))
       switch (roll_dice(0, 2)) {
         case 0: randomName << roll_dice('A', 'Z'); break; // Uppercase letter
         case 1: randomName << roll_dice('a', 'z'); break; // Lowercase letter
@@ -805,7 +807,7 @@ namespace cslib {
       to create a random string of letters and digits.
     */
     TempFile() {
-      str_t tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
+      str_t tempFileName;
       // Ensure the file does not already exist
       do {
         tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
@@ -874,6 +876,41 @@ namespace cslib {
         This function requires wget to be installed on the system.
         It will throw an error if wget is not found or fails to execute.
     */
-    return sh_call("wget -q -O - " + str_t(_url.data()));
+    return sh_call("wget -q -O - " + str_t(_url.data())); // -q = quiet mode, -O - = output to stdout
+  }
+
+
+
+
+  template <typename T>
+  requires std::is_arithmetic_v<T>
+  MACRO highest_value_of() {
+    /*
+      Get the highest possible value that
+      the type T can represent.
+    */
+    if constexpr (std::is_integral_v<T>)
+      return std::numeric_limits<T>::max();
+    else if constexpr (std::is_floating_point_v<T>)
+      return std::numeric_limits<T>::infinity();
+    else
+      throw_up("Unsupported type for highest_value_of");
+  }
+
+
+
+  template <typename T>
+  requires std::is_arithmetic_v<T>
+  MACRO lowest_value_of() {
+    /*
+      Get the lowest possible value that
+      the type T can represent.
+    */
+    if constexpr (std::is_integral_v<T>)
+      return std::numeric_limits<T>::lowest();
+    else if constexpr (std::is_floating_point_v<T>)
+      return -std::numeric_limits<T>::infinity();
+    else
+      throw_up("Unsupported type for lowest_value_of");
   }
 } // namespace cslib

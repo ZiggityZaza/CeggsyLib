@@ -293,7 +293,7 @@ int main() {
   title("Testing cslib::retry"); {
     // stl
     bm.reset();
-    std::function<int()> stdFunc = [] -> int {
+    std::function<int()> stdFunc = [] {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from std::function");
@@ -306,7 +306,7 @@ int main() {
 
     // C-style pointer
     bm.reset();
-    int (*cPtrFunc)() = [] -> int {
+    int (*cPtrFunc)() = [] {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from c-style function pointer");
@@ -319,7 +319,7 @@ int main() {
 
     // Lambda
     bm.reset();
-    auto lambdaFunc = [] -> int {
+    auto lambdaFunc = [] {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from lambda function");
@@ -332,7 +332,7 @@ int main() {
 
     // Inline lambda
     bm.reset();
-    result = retry([] -> int {
+    result = retry([] {
       static int attempts = 0;
       if (++attempts < 3)
         throw std::runtime_error("Test error from inline lambda function");
@@ -344,7 +344,7 @@ int main() {
 
     // Always throw
     try {
-      retry([] -> int {
+      retry([] {
         throw std::runtime_error("This function always fails");
       }, 1, 1);
       log(false, "retry should throw an error for function that always fails");
@@ -646,9 +646,91 @@ int main() {
     log(tempFile.type() == std::filesystem::file_type::regular, "File should be of type regular");
 
     // File I/O
-    
+    log(tempFile.read_text() == "", "File should be empty after creation");
+    tempFile.edit_text("Hello, world!");
+    log(tempFile.read_text() == "Hello, world!", "File should be written correctly");
+    std::string binaryData;
+    for (char i : range(lowest_value_of<char>(), highest_value_of<char>())) // Append all kinds of possible data
+      binaryData += i;
+    tempFile.edit_binary(binaryData.data(), binaryData.size());
+    log(tempFile.read_binary() == std::vector<char>(binaryData.begin(), binaryData.end()), "File should read binary data correctly");
+
+    // Other
+    log(tempFile.extension() == ".tmp", "Function should recognize the file extension");
+    log(tempFile.bytes() == binaryData.size(), "Function should return the correct file size");
+
+    // Move and copy on disk
+    TempFolder srcFolder;
+    TempFolder dstFolder;
+    tempFile.move_self_into(srcFolder);
+    log(tempFile.copy_self_into(dstFolder).read_binary() == tempFile.read_binary(), "File and its copy should have the same content");
   }
 
 
-  std::cout << "\n >> Failed tests: " << failedTests << std::endl;
+
+  title("Testing cslib:Folder::typed_list (was implemented after declartion of cslib::File)"); {
+    TempFolder tempFolder;
+    TempFolder dummyFolder;
+    TempFile dummyFile, dummySubFile;
+    log(dummyFolder.typed_list().size() == 0, "Folder should be empty");
+    dummyFolder.move_self_into(tempFolder);
+    dummyFile.move_self_into(tempFolder);
+    dummySubFile.move_self_into(dummyFolder);
+    const std::vector<std::variant<File, Folder, Road>> typedList = tempFolder.typed_list();
+    int items = 0;
+    for (std::variant<File, Folder, Road> item : typedList)
+      if (std::holds_alternative<File>(item))
+        items++;
+    log(items == 1, "TempFolder should contain one file");
+    items = 0;
+    for (std::variant<File, Folder, Road> item : typedList)
+      if (std::holds_alternative<Folder>(item))
+        items++;
+    log(items == 1, "TempFolder should contain one subfolder");
+    items = 0;
+    for (std::variant<File, Folder, Road> item : typedList)
+      if (std::holds_alternative<Road>(item))
+        items++;
+    log(items == 0, "TempFolder shouldn't contain any other file types");
+    items = 0;
+    for (std::variant<File, Folder, Road> item : typedList)
+      if (std::holds_alternative<Folder>(item))
+        for (std::variant<File, Folder, Road> subItem : std::get<Folder>(item).typed_list())
+          if (std::holds_alternative<File>(subItem))
+            items++;
+    log(items == 1, "Subfolder of TempFolder should contain one file");
+  }
+
+
+
+  title("Testing cslib::scramble_filename"); {
+    log(cslib::scramble_filename().length() == SCRAMBLE_LEN, "Scrambled filename should have the correct length");
+    log(cslib::scramble_filename().find('?') == std::string::npos, "Scrambled filename should not contain the invalid character");
+  }
+
+
+
+  title("Skipping cslib::TempFolder and cslib::File as they were tested previously");
+
+
+
+  title("Testing cslib::wget"); {
+    log(cslib::wget("https://www.example.com").find("<title>") != std::string::npos, "wget should retrieve the webpage");
+  }
+
+
+
+  title("Testing cslib::highest_value_of and cslib::lowest_value_of"); {
+    log(cslib::highest_value_of<char>() == std::numeric_limits<char>::max(), "highest_value_of<char> should return the maximum value of char");
+    log(cslib::lowest_value_of<char>() == std::numeric_limits<char>::min(), "lowest_value_of<char> should return the minimum value of char");
+  }
+
+
+  if (failedTests != 0) {
+    std::cout << "\n >> " << failedTests << " tests failed." << std::endl;
+    return EXIT_FAILURE;
+  } else {
+    std::cout << "\n >> " << "All tests passed." << std::endl;
+    return EXIT_SUCCESS;
+  }
 }

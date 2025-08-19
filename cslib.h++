@@ -243,6 +243,10 @@ namespace cslib {
   std::vector<T> range(const T& end) {
     return range(T(0), end);
   }
+  template <typename T>
+  std::vector<T> range(cptr<T> _begin, size_t _count) {
+    return std::vector<T>(_begin, _begin + _count);
+  }
 
 
 
@@ -741,7 +745,7 @@ namespace cslib {
     }
     void edit_binary(const auto *const _newData, size_t _len) const {
       std::ofstream file(reach_out(std::ios::binary | std::ios::trunc));
-      file.write(reinterpret_cast<const char*>(_newData), _len);
+      file.write(reinterpret_cast<const char *const>(_newData), _len);
       if (!file.good())
         throw_up("Failed to write into file ", isAt);
     }

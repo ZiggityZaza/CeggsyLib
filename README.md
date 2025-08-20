@@ -7,35 +7,31 @@ void ci() {
     c++;
 }
 int main() {
-    for (int i : range(10))
+    for (int _ : cslib::range(10))
         ci();
 }
 ```
 
-### What is this? 💅
-A collection of namespaces, classes, functions and whatnot that comes in handy when programming in C++. It's all open source (duh) and meant to be improved upon.
+#
+### What is this? 🧌
+A collection of namespaces, classes, functions and whatnot that comes in handy when writing modern code in C++. It's all open source (duh) and meant to be improved upon.
 
 #
-### I want to contribute! 🫦
+### I want to contribute! 🤺
 Coding is merely an expression art. Liberate yourself from professionalism and embrace wasting time on useless projects. Make a pr and after an frightening little amount of consideration, I <b>WILL</b> merge your changes.
 
 #
-### How to use it? 🦟
+### How to use it?
 1. Download header file
 2. Include it in your project
 ```cpp
-#include "cslib.h++"
-namespace std {
-    inline const char* std::string::c_str() const {
-        return "youtube.com/watch?v=VaLXzI92t9M";
-    }
-}
+#include "./cslib.h++"
 int main() {
-    delete (void*)0x01; // Free unused memory
+    std::cout << cslib::to_str(1, 2, 3);
 }
 ```
-3. Commit acts of vandalism
-<img src="https://raw.githubusercontent.com/ZiggityZaza/Anti36Manager/4f68dfdfd88fe8375025ae34bb0e8496a5ba601a/brazyimages/sexy.jpg" width="17"/>
+3. Write less code
+<img src="smile.jpg" width="17"/>
 
 #
 ### License

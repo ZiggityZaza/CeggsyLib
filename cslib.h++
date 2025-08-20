@@ -68,6 +68,8 @@ namespace cslib {
   */
   template <typename T>
   using cptr = const T *const;
+  template <typename T>
+  using maybe = std::optional<T>;
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
@@ -139,7 +141,7 @@ namespace cslib {
       return woss.str();
     }()) {}
   };
-  #define throw_up(...) throw cslib::any_error(__LINE__, __VA_ARGS__)
+  #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __VA_ARGS__)
 
 
 
@@ -162,12 +164,12 @@ namespace cslib {
     int exitCode = 0;
     FILE* pipe = popen(_command.data(), "r");
     if (!pipe)
-      throw_up("Failed to open pipe");
+      cslib_throw_up("Failed to open pipe");
     while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
       result += buffer.data();
     exitCode = pclose(pipe);
     if (exitCode != 0)
-      throw_up("Command failed or not found: '", _command, "' (exit code ", exitCode, ")");
+      cslib_throw_up("Command failed or not found: '", _command, "' (exit code ", exitCode, ")");
     return result;
   }
 
@@ -214,7 +216,7 @@ namespace cslib {
     */
     cstr envCStr = getenv(_var.data());
     if (envCStr == NULL)
-      throw_up("Environment variable '", _var, "' not found");
+      cslib_throw_up("Environment variable '", _var, "' not found");
     return str_t(envCStr);
   }
 
@@ -255,7 +257,7 @@ namespace cslib {
       Retry a function up to `retries` times with a delay
       of `delay` milliseconds between each retry.
       Example:
-        std::function<int()> func = []() {
+        std::function<int()> func = [] {
           // Do something that might fail
         };
         cslib::retry(func, 3, 0, 1);
@@ -267,11 +269,11 @@ namespace cslib {
       }
       catch (const std::exception& e) {
         if (_maxAttempts == 0)
-          throw_up("Function failed after maximum attempts: ", e.what());
+          cslib_throw_up("Function failed after maximum attempts: ", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds(_waitTimeMs)); // Wait before retrying
       }
     }
-    throw_up("Function failed after maximum attempts");
+    cslib_throw_up("Function failed after maximum attempts");
   }
 
 
@@ -284,7 +286,7 @@ namespace cslib {
         The first argument is the program name, so we skip it
     */
     if (_args == nullptr or _argc <= 0)
-      throw_up("No command line arguments provided");
+      cslib_throw_up("No command line arguments provided");
     std::vector<strv_t> args(_args, _args + _argc); // Includes binary name
     args.erase(args.begin()); // Remove the first argument (program name)
     return args;
@@ -318,7 +320,7 @@ namespace cslib {
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
     if (_maxLength < strlen(TRIM_WITH))
-      throw_up("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
+      cslib_throw_up("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
     return str_t(_strsv.substr(0, _maxLength - strlen(TRIM_WITH))) + TRIM_WITH;
@@ -330,7 +332,7 @@ namespace cslib {
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
     if (_maxLength < strlen(TRIM_WITH))
-      throw_up("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
+      cslib_throw_up("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
     return str_t(TRIM_WITH) + str_t(_strsv.substr(_strsv.length() - (_maxLength - strlen(TRIM_WITH))));
@@ -384,7 +386,7 @@ namespace cslib {
         by the caller. This function only cleans up its own changes.
     */
     if (!_inStream or !_inStream.good())
-      throw_up("std::istream is not good or in a bad state");
+      cslib_throw_up("std::istream is not good or in a bad state");
     std::streampos previousPos = _inStream.tellg();
     str_t result{std::istreambuf_iterator<char>(_inStream), std::istreambuf_iterator<char>()};
     _inStream.seekg(previousPos);
@@ -418,10 +420,10 @@ namespace cslib {
         std::chrono::day(_day)
       };
       if (!ymd.ok())
-        throw_up("Invalid date: ", _day, "-", _month, "-", _year);
+        cslib_throw_up("Invalid date: ", _day, "-", _month, "-", _year);
       // Determine time
       if (_hour >= 24 or _min >= 60 or _sec >= 60)
-        throw_up("Invalid time: ", _hour, ":", _min, ":", _sec);
+        cslib_throw_up("Invalid time: ", _hour, ":", _min, ":", _sec);
       std::chrono::hh_mm_ss hms{
         std::chrono::hours(_hour) +
         std::chrono::minutes(_min) +
@@ -589,10 +591,10 @@ namespace cslib {
           The new name must not contain any path separators.
       */
       if (_newName.find(std::filesystem::path::preferred_separator) != std::string::npos)
-        throw_up("New name '", _newName, "' contains path separators");
+        cslib_throw_up("New name '", _newName, "' contains path separators");
       std::filesystem::path newPath = isAt.parent_path() / _newName;
       if (std::filesystem::exists(newPath))
-        throw_up("Path ", newPath, " already exists");
+        cslib_throw_up("Path ", newPath, " already exists");
       std::filesystem::rename(isAt, newPath);
       isAt = newPath; // Update the path
     }
@@ -621,7 +623,7 @@ namespace cslib {
     Road(const std::filesystem::path& _where) : isAt(std::filesystem::canonical(_where)) {}
     Road(const std::filesystem::path& _where, std::filesystem::file_type _type) : isAt(_where) {
     if (_type != this->type())
-      throw_up("Road ", _where, " initialized with unexpected file type");
+      cslib_throw_up("Road ", _where, " initialized with unexpected file type");
     }
   };
 
@@ -641,14 +643,14 @@ namespace cslib {
     Folder() = default;
     Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) {
       if (_where.empty())
-        throw_up("Path empty");
+        cslib_throw_up("Path empty");
       if (_createIfNotExists and !std::filesystem::exists(_where)) {
         std::filesystem::create_directory(_where);
         if (!std::filesystem::exists(_where))
-          throw_up("Failed to create folder ", _where);
+          cslib_throw_up("Failed to create folder ", _where);
       } else if (!std::filesystem::is_directory(_where))
-        throw_up("Path ", _where, " is not a directory");
-      isAt = std::filesystem::canonical(_where);
+        cslib_throw_up("Path ", _where, " is not a directory");
+      isAt = std::filesystem::canonical(_where);    
     }
 
 
@@ -656,10 +658,15 @@ namespace cslib {
       /*
         List all entries in the folder.
         Returns a vector of Path, File and Folder objects.
+        Note:
+          Sorted by name
       */
       std::vector<Road> entries;
       for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
-        entries.emplace_back(Road(entry.path()));
+        entries.emplace_back(entry.path());
+      std::sort(entries.begin(), entries.end(), [](const Road& a, const Road& b) {
+        return a.str() < b.str();
+      });
       return entries;
     }
     std::vector<std::variant<File, Folder, Road>> typed_list() const;
@@ -675,7 +682,7 @@ namespace cslib {
           will still point to the old location.
       */
       if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
-        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
+        cslib_throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
       isAt = _newLocation.isAt / isAt.filename();
     }
@@ -701,11 +708,11 @@ namespace cslib {
     File() = default;
     File(const std::filesystem::path& _where, bool _createIfNotExists = false) {
       if (_where.empty())
-        throw_up("Path empty");
+        cslib_throw_up("Path empty");
       if (_createIfNotExists and !std::filesystem::exists(_where))
         std::ofstream file(_where);
       if (!std::filesystem::is_regular_file(_where))
-        throw_up("Path ", _where, " is not a regular file");
+        cslib_throw_up("Path ", _where, " is not a regular file");
       isAt = std::filesystem::canonical(_where);
     }
 
@@ -713,13 +720,13 @@ namespace cslib {
     std::ifstream reach_in(std::ios::openmode mode) const {
       std::ifstream file(isAt, mode);
       if (!file.is_open() or !file.good())
-        throw_up("Failed to open file ", isAt);
+        cslib_throw_up("Failed to open file ", isAt);
       return std::move(file);
     }
     std::ofstream reach_out(std::ios::openmode mode) const {
       std::ofstream file(isAt, mode);
       if (!file.is_open() or !file.good())
-        throw_up("Failed to open file ", isAt);
+        cslib_throw_up("Failed to open file ", isAt);
       return std::move(file);
     }
 
@@ -747,7 +754,7 @@ namespace cslib {
       std::ofstream file(reach_out(std::ios::binary | std::ios::trunc));
       file.write(reinterpret_cast<const char *const>(_newData), _len);
       if (!file.good())
-        throw_up("Failed to write into file ", isAt);
+        cslib_throw_up("Failed to write into file ", isAt);
     }
 
     std::string extension() const {return isAt.extension().string();}
@@ -756,7 +763,7 @@ namespace cslib {
 
     void move_self_into(Folder& _newLocation) {
       if (std::filesystem::exists(_newLocation / isAt.filename()))
-        throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
+        cslib_throw_up("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       std::filesystem::rename(isAt, _newLocation / isAt.filename());
       isAt = _newLocation / isAt.filename(); // Update the path
     }
@@ -821,7 +828,7 @@ namespace cslib {
     }
     TempFile(const std::filesystem::path& _createAs) {
       if (std::filesystem::exists(_createAs))
-        throw_up("File ", _createAs.filename(), " already exists in folder ", _createAs.parent_path());
+        cslib_throw_up("File ", _createAs.filename(), " already exists in folder ", _createAs.parent_path());
       isAt = File(_createAs, true).isAt; // Create the file
     }
     ~TempFile() {
@@ -858,7 +865,7 @@ namespace cslib {
           If the folder already exists, it will throw an error.
       */
       if (std::filesystem::exists(_createAs))
-        throw_up("Folder ", _createAs.filename(), " already exists in folder ", _createAs.parent_path());
+        cslib_throw_up("Folder ", _createAs.filename(), " already exists in folder ", _createAs.parent_path());
       isAt = Folder(_createAs, true).isAt;
     }
     ~TempFolder() {
@@ -898,7 +905,7 @@ namespace cslib {
     else if constexpr (std::is_floating_point_v<T>)
       return std::numeric_limits<T>::infinity();
     else
-      throw_up("Unsupported type for highest_value_of");
+      cslib_throw_up("Unsupported type for highest_value_of");
   }
 
 
@@ -915,6 +922,19 @@ namespace cslib {
     else if constexpr (std::is_floating_point_v<T>)
       return -std::numeric_limits<T>::infinity();
     else
-      throw_up("Unsupported type for lowest_value_of");
+      cslib_throw_up("Unsupported type for lowest_value_of");
+  }
+
+
+
+  template <typename T>
+  FIXED T& grab_var(std::optional<T>& _optional) {
+    return _optional.value();
+  }
+  template <typename T>
+  FIXED T& grab_var(const auto& _variant) {
+    if (!std::holds_alternative<T>(_variant))
+      throw_up("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
+    return std::get<T>(_variant);
   }
 } // namespace cslib

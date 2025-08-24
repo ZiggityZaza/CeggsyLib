@@ -8,6 +8,7 @@ void title(const auto& title) {
   std::cout << "\n\033[1;34m" << title << "\033[0m\n";
 }
 
+
 enum error_throw_kind_issue {
   WRONG_WHAT, // .what doesn't match expected
   EXCEPT_T_WRONG, // Exception type doesn't match expected

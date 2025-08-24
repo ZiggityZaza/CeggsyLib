@@ -175,20 +175,30 @@ namespace cslib {
 
 
 
-  MACRO contains(const auto& _lookIn, const auto& _lookFor) {
+  template <typename T>
+  FIXED maybe<cptr<T>> contains(const auto& _lookIn, const T& _lookFor) {
     /*
-      does `container` contain `key`
+      Checks if element `_lookFor` is in `_lookIn`
+      and if so, returns a reference to the first
+      instance of `_lookFor`
     */
-    return std::find(_lookIn.begin(), _lookIn.end(), _lookFor) != _lookIn.end();
+    for (const T& item : _lookIn)
+      if (item == _lookFor)
+        return &item;
+    return std::nullopt;
   }
-  MACRO have_something_common(const auto& _cont1, const auto& _cont2) {
+  template <typename T>
+  FIXED maybe<std::vector<cptr<T>>> have_common(const auto& _cont1, const auto& _cont2) {
     /*
-      do `c1` and `c2` contain similar keys
+      Find and make optional vector of common elements.
     */
+    std::vector<cptr<T>> commonElements;
     for (const auto& item : _cont1)
       if (contains(_cont2, item))
-        return true;
-    return false;
+        commonElements.push_back(item);
+    if (commonElements.empty())
+      return std::nullopt;
+    return commonElements;
   }
 
 
@@ -343,7 +353,7 @@ namespace cslib {
   std::vector<str_t> separate(strv_t _strsv, strv_t _delimiter) {
     /*
       Example:
-        cslib::separate("John Money", " ) // {"John", "Money"}
+        cslib::separate("John Money", " ") // {"John", "Money"}
     */
     std::vector<str_t> result;
     size_t pos = 0;
@@ -354,6 +364,9 @@ namespace cslib {
     if (!_strsv.empty())
       result.push_back(_strsv.data()); // Add the last part
     return result;
+  }
+  std::vector<str_t> separate(strv_t _strsv, char _delimiter) {
+    return separate(_strsv, to_str(_delimiter));
   }
 
 
@@ -652,6 +665,7 @@ namespace cslib {
         cslib_throw_up("Path ", _where, " is not a directory");
       isAt = std::filesystem::canonical(_where);    
     }
+    Folder(const Road& _where, bool _createIfNotExists) : Folder(_where.isAt, _createIfNotExists) {}
 
 
     std::vector<Road> list() const {
@@ -669,9 +683,19 @@ namespace cslib {
       });
       return entries;
     }
-    std::vector<std::variant<File, Folder, Road>> typed_list() const;
-    bool has(const Road& _item) const {
-      return contains(list(), _item);
+
+
+    using list_t = std::variant<File, Folder, Road>;
+    std::vector<list_t> typed_list() const;
+
+
+    maybe<Road> has(strv_t _name) const {
+      if (contains(_name, std::filesystem::path::preferred_separator))
+        cslib_throw_up("Relative path '", _name, "' contains path separators");
+      for (Road entry : this->list())
+        if (entry.name() == _name)
+          return entry;
+      return std::nullopt;
     }
 
 
@@ -715,19 +739,20 @@ namespace cslib {
         cslib_throw_up("Path ", _where, " is not a regular file");
       isAt = std::filesystem::canonical(_where);
     }
+    File(const Road& _where, bool _createIfNotExists) : File(_where.isAt, _createIfNotExists) {}
 
 
     std::ifstream reach_in(std::ios::openmode mode) const {
       std::ifstream file(isAt, mode);
       if (!file.is_open() or !file.good())
         cslib_throw_up("Failed to open file ", isAt);
-      return std::move(file);
+      return file;
     }
     std::ofstream reach_out(std::ios::openmode mode) const {
       std::ofstream file(isAt, mode);
       if (!file.is_open() or !file.good())
         cslib_throw_up("Failed to open file ", isAt);
-      return std::move(file);
+      return file;
     }
 
     str_t read_text() const {
@@ -777,8 +802,8 @@ namespace cslib {
 
 
 
-  std::vector<std::variant<File, Folder, Road>> Folder::typed_list() const {
-    std::vector<std::variant<File, Folder, Road>> result;
+  std::vector<Folder::list_t> Folder::typed_list() const {
+    std::vector<list_t> result;
     for (const Road& entry : this->list())
       if (entry.type() == std::filesystem::file_type::regular)
         result.emplace_back(File(entry));
@@ -928,13 +953,17 @@ namespace cslib {
 
 
   template <typename T>
-  FIXED T& grab_var(std::optional<T>& _optional) {
+  FIXED T& grab(std::optional<T>& _optional) {
     return _optional.value();
   }
   template <typename T>
-  FIXED T& grab_var(const auto& _variant) {
+  FIXED T& grab(const auto& _variant) {
     if (!std::holds_alternative<T>(_variant))
       throw_up("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
+  }
+  template <typename T>
+  FIXED bool holds(const auto& _variant) {
+    return std::holds_alternative<T>(_variant);
   }
 } // namespace cslib

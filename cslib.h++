@@ -71,8 +71,9 @@ namespace cslib {
   using cptr = const T *const;
   template <typename T>
   using opt = std::optional<T>;
-  template <typename T>
-  using maybe = std::expected<T, str_t>;
+  using maybe_err_t = str_t;
+  template <typename T, typename Or = maybe_err_t>
+  using maybe = std::expected<T, Or>;
   #define SHARED inline // Alias inline for shared functions, etc.
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
@@ -101,13 +102,13 @@ namespace cslib {
       */
       std::ostringstream oss;
       oss << "cslib::any_error called in workspace " << std::filesystem::current_path() << ' ';
-      oss << "on line " << _lineInCode << " in function \"" << _funcName << "\" because: ";
+      oss << "on line " << _lineInCode << " in function '" << _funcName << "' because: ";
       ((oss << _msgs), ...);
       oss << std::flush;
       return oss.str();
     }()) {}
   };
-  #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __PRETTY_FUNCTION__, __VA_ARGS__)
+  #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __func__, __VA_ARGS__)
 
 
 
@@ -122,26 +123,25 @@ namespace cslib {
 
 
 
-
-  maybe<str_t> sh_call(strv_t _command) noexcept {
+  maybe<str_t, int> sh_call(strv_t _command) noexcept {
     /*
       Non-blocking system call that returns the
-      output of the command. Throws if the command
-      does not exist or fails to execute.
+      output of the command. Returns exit code
+      upon failure.
       Important Note:
         This method is VERY prone to injections
     */
     std::array<char, 128> buffer = {};
     str_t result;
-    int exitCode = 0;
+    int exitCode = -1;
     FILE* pipe = popen(_command.data(), "r");
     if (!pipe)
-      return unexpect("Failed to open pipe");
+      return std::unexpected<int>(exitCode);
     while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
       result += buffer.data();
     exitCode = pclose(pipe);
     if (exitCode != 0)
-      return unexpect("Command failed or not found: '", _command, "' (exit code ", exitCode, ")");
+      return std::unexpected<int>(exitCode);
     return result;
   }
 
@@ -196,7 +196,7 @@ namespace cslib {
     */
     std::vector<T> result;
     if (_start > _end) // reverse
-      for (T i = _start; i >= _end; --i)
+      for (T i = _start; i > _end; --i)
         result.push_back(i);
     else if (_start < _end) // start to end
       for (T i = _start; i < _end; ++i)
@@ -221,30 +221,31 @@ namespace cslib {
 
 
 
-  auto retry(const auto& _func, size_t _maxAttempts, const auto&... _args) noexcept {
+  template <typename Func, typename... Args>
+  maybe<std::invoke_result_t<Func, Args...>> retry(const Func& _func, size_t _maxAttempts, const Args&... _args) noexcept {
     /*
       Retry a function up to `retries` times
-      // Note:
-      //   Can't maybe<> here because of auto return type
       Example:
         std::function<int()> func = [] {
           // Do something that might fail
         };
-        cslib::retry(func, 3, 0, 1);
+        cslib::retry(func, 3, ...);
     */
-    static_assert(std::is_invocable_v<decltype(_func)>, "Function must be invocable");
-    static_assert(!std::is_nothrow_invocable_v<decltype(_func), decltype(_args)...>, "Function must be able to throw exceptions so it can be caught");
-    maybe<std::invoke_result_t<decltype(_func), decltype(_args)...>> result;
     while (_maxAttempts-- > 0) {
       try {
-        return result = std::invoke(_func, _args...);
+        if constexpr (std::is_void_v<std::invoke_result_t<Func, Args...>>) {
+          _func(_args...);
+          return {};
+        }
+        else
+          return _func(_args...);
       }
       catch (const std::exception& e) {
-        if (_maxAttempts == 0)
+        if (!_maxAttempts)
           return unexpect("Function failed after maximum attempts: ", e.what());
       }
       catch (...) {
-        if (_maxAttempts == 0)
+        if (!_maxAttempts)
           return unexpect("Function failed after maximum attempts: unknown exception");
       }
     }
@@ -255,16 +256,16 @@ namespace cslib {
 
   maybe<std::vector<strv_t>> parse_cli_args(int _argc, cstr _args[]) {
     /*
-      Parse command line arguments and return them as a
-      vector of strings.
+      Parse command line arguments and return
+      them as a vector of strings.
       Note:
-        The first argument is the program name, so we skip it
+        Make sure `_argc` and the `_args`'s size
+        align even when nullptr or vector won't
+        recognize values
     */
     if (_args == nullptr or _argc <= 0)
-      unexpect("No command line arguments provided");
-    std::vector<strv_t> args(_args, _args + _argc); // Includes binary name
-    args.erase(args.begin()); // Remove the first argument (program name)
-    return args;
+      return unexpect("No command line arguments provided");
+    return std::vector<strv_t>(_args, _args + _argc); // Includes binary name
   }
 
 
@@ -295,7 +296,7 @@ namespace cslib {
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
     if (_maxLength < strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
+      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
     return str_t(_strsv.substr(0, _maxLength - strlen(TRIM_WITH))) + TRIM_WITH;
@@ -307,7 +308,7 @@ namespace cslib {
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
     if (_maxLength < strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " (TRIM_WITH length)");
+      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
     return str_t(TRIM_WITH) + str_t(_strsv.substr(_strsv.length() - (_maxLength - strlen(TRIM_WITH))));
@@ -386,7 +387,7 @@ namespace cslib {
     // Contructors and error handling
     TimeStamp() noexcept {timePoint = std::chrono::system_clock::now();}
     TimeStamp(std::chrono::system_clock::time_point _tp) : timePoint(_tp) {}
-    TimeStamp(int _sec, int _min, int _hour, int _day, int _month, int _year) {
+    TimeStamp(int _hour, int _min, int _sec, int _day, int _month, int _year) {
       /*
         Create a time stamp from the given date and time
         after making sure that the date is valid.
@@ -400,7 +401,7 @@ namespace cslib {
       if (!ymd.ok())
         cslib_throw_up("Invalid date: ", _day, "-", _month, "-", _year);
       // Determine time
-      if (_hour >= 24 or _min >= 60 or _sec >= 60)
+      if ((_hour >= 24 or _hour < 0) or (_min >= 60 or _min < 0) or (_sec >= 60 or _sec < 0))
         cslib_throw_up("Invalid time: ", _hour, ":", _min, ":", _sec);
       std::chrono::hh_mm_ss hms{
         std::chrono::hours(_hour) +
@@ -530,6 +531,7 @@ namespace cslib {
 
 
 
+  MACRO& PATH_SEPARATOR = std::filesystem::path::preferred_separator;
   class File;
   class Folder;
   class BizarreRoad;
@@ -553,7 +555,6 @@ namespace cslib {
       auto ftime = std::filesystem::last_write_time(isAt);
       return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
-    Folder parent() const noexcept ;
     size_t depth() const noexcept {
       /*
         Example:
@@ -561,15 +562,18 @@ namespace cslib {
           size_t depth = path.depth();
           // depth = 3 (because there are 3 directories before the file)
       */
-      return separate(isAt.string(), to_str(std::filesystem::path::preferred_separator)).size() - 1;
+      return separate(isAt.string(), to_str(PATH_SEPARATOR)).size() - 1;
     }
+    Folder operator[](size_t _index) const noexcept;
+
+
     maybe<void> rename_self_to(strv_t _newName) noexcept {
       /*
         Rename the entry to a new name.
         Note:
           The new name must not contain any path separators.
       */
-      if (_newName.find(std::filesystem::path::preferred_separator) != std::string::npos)
+      if (_newName.find(PATH_SEPARATOR) != std::string::npos)
         return unexpect("New name '", _newName, "' contains path separators");
       std::filesystem::path newPath = isAt.parent_path() / _newName;
       if (std::filesystem::exists(newPath))
@@ -751,7 +755,7 @@ namespace cslib {
 
 
 
-
+  // Implementations for Road stuff due to constructors not being defined yet
   std::vector<road_t> Folder::list() const noexcept {
     /*
       List all entries in the folder.
@@ -778,7 +782,7 @@ namespace cslib {
       the given relative path. If it does, return the
       corresponding Road object.
       Example:
-        if (auto road = folder.has("subfolder/subfile.txt"))
+        if (opt<road_t> road = folder.has("subfolder/subfile.txt"))
           // Do something with the road
     */
     if (std::filesystem::exists(isAt / _lookFor))
@@ -792,8 +796,19 @@ namespace cslib {
       }
     return std::nullopt;
   }
-  Folder Road::parent() const noexcept {
-    return Folder(isAt.parent_path());
+  Folder Road::operator[](size_t _index) const noexcept {
+    /*
+      Find parent paths by layer
+      Example:
+        Folder f("/root/projects/folder");
+        Folder root = f[0];
+        Folder parent = f[f.depth()-1];
+    */
+    str_t depths;
+    std::vector<str_t> paths = separate(isAt.string(), PATH_SEPARATOR);
+    for (size_t pos : range(paths.size()))
+      depths += paths.at(pos) + to_str(PATH_SEPARATOR);
+    return Folder(depths);
   }
 
 
@@ -811,7 +826,7 @@ namespace cslib {
         case 0: randomName << roll_dice('A', 'Z'); break; // Uppercase letter
         case 1: randomName << roll_dice('a', 'z'); break; // Lowercase letter
         case 2: randomName << roll_dice('0', '9'); break; // Digit
-        default: randomName << '?';
+        default: randomName << '?'; // Shouldn't happen tho
       }
     return randomName.str();
   }
@@ -870,10 +885,11 @@ namespace cslib {
 
 
 
-  maybe<str_t> wget(strv_t _url) noexcept {
+  std::expected<str_t, int> wget(strv_t _url) noexcept {
     /*
       Download the content of the given URL using wget
-      and return it as a string.
+      and return it as a string. If the download fails,
+      an error code will be returned.
       Note:
         This function requires wget to be installed on the system.
         It will throw an error if wget is not found or fails to execute.

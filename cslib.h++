@@ -74,9 +74,16 @@ namespace cslib {
   using maybe_err_t = str_t;
   template <typename T, typename Or = maybe_err_t>
   using maybe = std::expected<T, Or>;
-  #define SHARED inline // Alias inline for shared functions, etc.
+  namespace stdfs = std::filesystem;
   #define MACRO inline constexpr auto // Macros for macro definitions
   #define FIXED inline constexpr // Explicit alternative for MACRO
+  MACRO IS_WINDOWS = [] {
+    #ifdef _WIN32
+      return true;
+    #else
+      return false;
+    #endif
+  }();
 
 
 
@@ -101,7 +108,7 @@ namespace cslib {
           throw cslib::any_error(__LINE__, "Aye", L"yo", '!', 123, true);
       */
       std::ostringstream oss;
-      oss << "cslib::any_error called in workspace " << std::filesystem::current_path() << ' ';
+      oss << "cslib::any_error called in workspace " << stdfs::current_path() << ' ';
       oss << "on line " << _lineInCode << " in function '" << _funcName << "' because: ";
       ((oss << _msgs), ...);
       oss << std::flush;
@@ -201,8 +208,8 @@ namespace cslib {
     else if (_start < _end) // start to end
       for (T i = _start; i < _end; ++i)
         result.push_back(i);
-    else // just start
-      result.push_back(_start);
+    else // Nothing
+      return std::vector<T>();
     return result;
   }
   template <typename T>
@@ -531,7 +538,16 @@ namespace cslib {
 
 
 
-  MACRO& PATH_SEPARATOR = std::filesystem::path::preferred_separator;
+  stdfs::path where_is_path_really(stdfs::path _path) {
+    /*
+      Returns the actual path of the entry on disk
+      but won't resolve symlinks.
+    */
+    if (stdfs::exists(_path) and stdfs::is_symlink(_path))
+      return stdfs::read_symlink(_path);
+    return stdfs::canonical(_path);
+  }
+  MACRO& PATH_SEPARATOR = stdfs::path::preferred_separator;
   class File;
   class Folder;
   class BizarreRoad;
@@ -541,19 +557,22 @@ namespace cslib {
       Abstract base class for filesystem entries.
       Represents a path in the filesystem and provides
       methods to manage it.
+      Note:
+        Copying/Moving/changing the object won't change
+        the represented entry on the disk.
     */
-    std::filesystem::path isAt; // Covers move and copy semantics
+    stdfs::path isAt; // Covers move and copy semantics
 
 
     // Path management
     std::string str() const noexcept { return isAt.string(); }
     std::string name() const noexcept { return isAt.filename().string(); }
-    std::filesystem::file_type type() const {
-      return std::filesystem::status(isAt).type();
+    stdfs::file_type type() const {
+      return stdfs::status(isAt).type();
     }
     std::chrono::system_clock::time_point last_modified() const noexcept {
-      auto ftime = std::filesystem::last_write_time(isAt);
-      return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - std::filesystem::file_time_type::clock::now() + std::chrono::system_clock::now());
+      auto ftime = stdfs::last_write_time(isAt);
+      return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
     size_t depth() const noexcept {
       /*
@@ -567,64 +586,69 @@ namespace cslib {
     maybe<Folder> operator[](size_t _index) const noexcept;
 
 
-    maybe<void> rename_self_to(strv_t _newName) noexcept {
+    [[nodiscard]] maybe<void> rename_self_to(strv_t _newName) noexcept {
       /*
         Rename the entry to a new name.
         Note:
-          The new name must not contain any path separators.
+          No path separators allowed as parent directories
+          are not created
       */
       if (_newName.find(PATH_SEPARATOR) != std::string::npos)
-        return unexpect("New name '", _newName, "' contains path separators");
-      std::filesystem::path newPath = isAt.parent_path() / _newName;
-      if (std::filesystem::exists(newPath))
+        return unexpect("Filename can't be moved with this function (previous: '", str(), "', new: '", _newName, "')");
+      const stdfs::path newPath = isAt.parent_path() / _newName;
+      if (stdfs::exists(newPath))
         return unexpect("Path ", newPath, " already exists");
-      std::filesystem::rename(isAt, newPath);
+      stdfs::rename(isAt, newPath);
       isAt = newPath; // Update the path
+      return {}; // "Illegal instruction" error if left out
     }
 
-
-    bool operator==(const Road& _other) const noexcept { return this->isAt == _other.isAt; }
-    bool operator!=(const Road& _other) const noexcept { return !(*this == _other); }
-    bool operator==(const std::filesystem::path& _other) const noexcept { return this->isAt == _other; }
-    bool operator!=(const std::filesystem::path& _other) const noexcept { return !(*this == _other); }
-    // Implicitly converts wide (c-)strings to std::filesystem::path 
+    
+    bool operator==(Road _other) const noexcept { return this->isAt == _other.isAt; }
+    bool operator!=(Road _other) const noexcept { return !(*this == _other); }
+    bool operator==(stdfs::path _other) const noexcept { return this->isAt == _other; }
+    bool operator!=(stdfs::path _other) const noexcept { return !(*this == _other); }
+    // Implicitly converts wide (c-)strings to stdfs::path 
 
 
     // Transform into stl
     operator std::string() const noexcept { return this->str(); }
-    operator std::filesystem::path() const noexcept { return this->isAt; }
-    operator std::filesystem::path&() noexcept { return this->isAt; }
-    operator const std::filesystem::path&() const noexcept { return this->isAt; }
-    operator std::filesystem::path*() noexcept { return &this->isAt; }
-    operator std::filesystem::path*() const noexcept { return const_cast<std::filesystem::path*>(&this->isAt); } // casted immutable
+    operator stdfs::path() const noexcept { return this->isAt; }
+    operator stdfs::path&() noexcept { return this->isAt; }
+    operator const stdfs::path&() const noexcept { return this->isAt; }
+    operator stdfs::path*() noexcept { return &this->isAt; }
+    operator stdfs::path*() const noexcept { return const_cast<stdfs::path*>(&this->isAt); } // casted immutable
     friend std::ostream& operator<<(std::ostream& _out, const Road& _entry) noexcept {
       return _out << _entry.str();
     }
 
 
-    protected: Road(const std::filesystem::path& _where) {
+    protected: Road() = default;
+    protected: Road(stdfs::path _where) { // Abstract class can't be instantiated
+      /*
+        Resolves the actual path for it's kids
+      */
       if (_where.empty())
         cslib_throw_up("Path empty");
-      isAt = std::filesystem::canonical(_where);
-    } // Abstract class can't be instantiated
+      isAt = where_is_path_really(_where);
+    }
   };
 
 
 
   class BizarreRoad : public Road { public:
     /*
-      Specifically for files that don't fit
-      into the usual categories such as
-      symbolic links or pipes
+      Specifically for files that don't fit into
+      the usual categories such as symbolic links
+      or pipes.
     */
-
     BizarreRoad() = default;
-    BizarreRoad(const std::filesystem::path& _where) : Road(_where) {
-      if (!std::filesystem::exists(_where))
-        cslib_throw_up("Path ", _where, " does not exist");
-      if (this->type() == std::filesystem::file_type::regular or
-          this->type() == std::filesystem::file_type::directory)
-        cslib_throw_up("Path ", _where, " is not a bizarre file");
+    BizarreRoad(stdfs::path _where) : Road(_where) {
+      if (!stdfs::exists(isAt))
+        cslib_throw_up("Path '", isAt, "' does not exist");
+      if (this->type() == stdfs::file_type::regular or
+          this->type() == stdfs::file_type::directory)
+        cslib_throw_up("Path '", isAt, "' is not a bizarre file");
     }
   };
 
@@ -638,14 +662,14 @@ namespace cslib {
         if (folder.has(Road("/gitstuff/cslib/cslib.h++")))
           std::wcout << "Folder contains the file\n";
     */
-
     Folder() = default;
-    Folder(const std::filesystem::path& _where, bool _createIfNotExists = false) : Road(_where) {
-      if (_createIfNotExists and !std::filesystem::exists(_where))
-        std::filesystem::create_directory(_where);
-      else if (!std::filesystem::is_directory(_where))
+    Folder(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {
+      if (_createIfNotExists and !stdfs::exists(_where))
+        stdfs::create_directory(_where);
+      if (!stdfs::is_directory(_where))
         cslib_throw_up("Path ", _where, " is not a directory");
-    }
+      return _where;
+    }()) {}
 
 
     std::vector<road_t> list() const noexcept;
@@ -660,15 +684,15 @@ namespace cslib {
           Upon moving, subfolders and files objects
           will still point to the old location.
       */
-      if (std::filesystem::exists(_newLocation.isAt / isAt.filename()))
+      if (stdfs::exists(_newLocation.isAt / isAt.filename()))
         return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      std::filesystem::rename(isAt, _newLocation.isAt / isAt.filename());
+      stdfs::rename(isAt, _newLocation.isAt / isAt.filename());
       isAt = _newLocation.isAt / isAt.filename();
     }
 
 
-    Folder copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::recursive) const noexcept {
-      std::filesystem::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
+    Folder copy_self_into(Folder& _newLocation, stdfs::copy_options _options = stdfs::copy_options::recursive) const noexcept {
+      stdfs::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
       return Folder(_newLocation.isAt / isAt.filename());
     }
   };
@@ -683,15 +707,14 @@ namespace cslib {
         str_t content = file.content();
         // content = "Around 50 years ago, a group of people..."
     */
-
     File() = default;
-    File(const std::filesystem::path& _where, bool _createIfNotExists = false) : Road(_where) {
-      if (_createIfNotExists and !std::filesystem::exists(_where))
+    File(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {
+      if (_createIfNotExists and !stdfs::exists(_where))
         std::ofstream file(_where);
-      if (!std::filesystem::is_regular_file(_where))
+      if (!stdfs::is_regular_file(_where))
         cslib_throw_up("Path ", _where, " is not a regular file");
-    }
-    File(const Road& _where, bool _createIfNotExists) : File(_where.isAt, _createIfNotExists) {}
+      return _where;
+    }()) {}
 
 
     std::ifstream reach_in(std::ios::openmode mode) const {
@@ -736,19 +759,19 @@ namespace cslib {
 
 
     std::string extension() const noexcept {return isAt.extension().string();}
-    size_t bytes() const noexcept {return std::filesystem::file_size(isAt);}
+    size_t bytes() const noexcept {return stdfs::file_size(isAt);}
 
 
     maybe<void> move_self_into(Folder& _newLocation) noexcept {
-      if (std::filesystem::exists(_newLocation / isAt.filename()))
+      if (stdfs::exists(_newLocation / isAt.filename()))
         return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      std::filesystem::rename(isAt, _newLocation / isAt.filename());
+      stdfs::rename(isAt, _newLocation / isAt.filename());
       isAt = _newLocation / isAt.filename(); // Update the path
     }
 
 
-    File copy_self_into(Folder& _newLocation, std::filesystem::copy_options _options = std::filesystem::copy_options::none) const noexcept {
-      std::filesystem::copy(isAt, _newLocation / isAt.filename(), _options);
+    File copy_self_into(Folder& _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
+      stdfs::copy(isAt, _newLocation / isAt.filename(), _options);
       return File(_newLocation / isAt.filename());
     }
   };
@@ -762,12 +785,12 @@ namespace cslib {
       Returns a vector of Path, File and Folder objects.
     */
     std::vector<road_t> result;
-    for (const std::filesystem::directory_entry& entry : std::filesystem::directory_iterator(isAt))
+    for (stdfs::directory_entry entry : stdfs::directory_iterator(isAt))
       switch (entry.status().type()) {
-        case std::filesystem::file_type::regular:
+        case stdfs::file_type::regular:
           result.emplace_back(File(entry.path()));
           break;
-        case std::filesystem::file_type::directory:
+        case stdfs::file_type::directory:
           result.emplace_back(Folder(entry.path()));
           break;
         default: // other types (symlinks, sockets, etc.)
@@ -785,11 +808,11 @@ namespace cslib {
         if (opt<road_t> road = folder.has("subfolder/subfile.txt"))
           // Do something with the road
     */
-    if (std::filesystem::exists(isAt / _lookFor))
-      switch (std::filesystem::status(isAt / _lookFor).type()) {
-        case std::filesystem::file_type::regular:
+    if (stdfs::exists(isAt / _lookFor))
+      switch (stdfs::status(isAt / _lookFor).type()) {
+        case stdfs::file_type::regular:
           return File(isAt / _lookFor);
-        case std::filesystem::file_type::directory:
+        case stdfs::file_type::directory:
           return Folder(isAt / _lookFor);
         default:
           return BizarreRoad(isAt / _lookFor); // Other types (symlinks, sockets, etc.)
@@ -802,21 +825,19 @@ namespace cslib {
       Example:
         Folder f("/root/projects/folder");
         Folder root = f[0];
-        Folder self = f[f.depth()];
         Folder parent = f[f.depth()-1];
     */
-    str_t pathAsStr;
-    std::vector<str_t> paths = separate("C:"+this->str(), PATH_SEPARATOR);
-    if (paths.size() <= _index)
-      return unexpect("Index ", _index, " out of bounds (max ", paths.size(), ") for path ", isAt);
-    for (size_t pos = 0; pos <= _index; ++pos)
-      pathAsStr += paths[pos] + PATH_SEPARATOR;
-    return Folder(pathAsStr);
+    stdfs::path parent = isAt;
+    if (_index >= depth())
+      return unexpect("Trying to reach (", _index, ") fruther than path '", str(), "' would allow (", depth(), ")");
+    for ([[maybe_unused]] size_t _ : range(depth() - _index))
+      parent = parent.parent_path();
+    return Folder(parent);
   }
 
 
 
-  MACRO SCRAMBLE_LEN = 2; // n^59 possible combinations hehe
+  MACRO SCRAMBLE_LEN = 2; // n^59 possible combinations
   str_t scramble_filename() noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
@@ -845,13 +866,13 @@ namespace cslib {
     TempFile() : File([] {
       str_t tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
       // Ensure the file does not already exist
-      while (std::filesystem::exists(std::filesystem::temp_directory_path() / tempFileName))
+      while (stdfs::exists(stdfs::temp_directory_path() / tempFileName))
         tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
-      return std::filesystem::temp_directory_path() / tempFileName;
+      return stdfs::temp_directory_path() / tempFileName;
     }(), true) {}
     ~TempFile() noexcept {
-      if (std::filesystem::exists(isAt))
-        std::filesystem::remove(isAt);
+      if (stdfs::exists(isAt))
+        stdfs::remove(isAt);
     }
 
 
@@ -872,13 +893,13 @@ namespace cslib {
     */
     TempFolder() : Folder([] {
       str_t tempFolderName = "cslibTempFolder_" + scramble_filename();
-      while (std::filesystem::exists(std::filesystem::temp_directory_path() / tempFolderName))
+      while (stdfs::exists(stdfs::temp_directory_path() / tempFolderName))
         tempFolderName = "cslibTempFolder_" + scramble_filename();
-      return std::filesystem::temp_directory_path() / tempFolderName;
+      return stdfs::temp_directory_path() / tempFolderName;
     }(), true) {}
     ~TempFolder() noexcept {
-      if (std::filesystem::exists(isAt))
-        std::filesystem::remove_all(isAt);
+      if (stdfs::exists(isAt))
+        stdfs::remove_all(isAt);
     }
 
 

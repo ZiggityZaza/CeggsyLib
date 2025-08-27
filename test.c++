@@ -222,6 +222,8 @@ int main() {
     log(r5 == std::vector<int>({-5, -4, -3}), "range(-5, -2) should return [-5, -4, -3]");
     std::vector<int> r6 = range(-2, -5);
     log(r6 == std::vector<int>({-2, -3, -4}), "range(-2, -5) should return [-2, -3, -4]");
+    std::vector<int> r7 = range(0);
+    log(r7 == std::vector<int>(), "range(0) should return []");
   }
 
 
@@ -456,11 +458,11 @@ int main() {
     // Error handling
     std::string errHeader = "cslib::any_error called in workspace \"/workspaces/CeggsyLib\" on line ";
     std::stringstream expectedErrTime;
-    expectedErrTime << errHeader << "405 in function 'TimeStamp' because: "; // Shifts by line
+    expectedErrTime << errHeader << "412 in function 'TimeStamp' because: "; // Shifts by line
     expectedErrTime << "Invalid time: 25:-1:61";
     log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), expectedErrTime.str()), "TimeStamp should throw an error for invalid time");
     std::stringstream expectedErrDate;
-    expectedErrDate << errHeader << "402 in function 'TimeStamp' because: "; // Shifts by line
+    expectedErrDate << errHeader << "409 in function 'TimeStamp' because: "; // Shifts by line
     expectedErrDate << "Invalid date: 32-13--1";
     log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), expectedErrDate.str()), "TimeStamp should throw an error for invalid date");
   }
@@ -502,62 +504,60 @@ int main() {
 
     // Name and position checks
     log(road.name() == road.isAt.filename(), "Road name should match filename");
-    #ifdef _WIN32
+    if constexpr (IS_WINDOWS)
       log(road.depth() == 6, "Road should have the correct depth for temp file"); // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
-    #else
+    else
       log(road.depth() == 2, "Road should have the correct depth for temp file"); // e.g., /tmp/cslib
-    #endif
-    std::cout << "?" << std::filesystem::absolute("/") << std::endl;
     maybe<Folder> root = road[0];
+    maybe<Folder> parent = road[road.depth() - 1];
     log(!!root, "Road should have a root folder");
     if (root) {
       str_t stdRoot = std::filesystem::current_path().root_path().string(); // "C:\" or "/"
-      log(root->name() == "C:"+stdRoot, to_str("Road root folder name should be root disk '") + "C:" + stdRoot + "' but is '" + root->name() + "'");
+      log(root->str() == stdRoot, to_str("Road root folder name should be root disk '") + stdRoot + "' but is '" + root->str() + "'");
       log(root->depth() == 0, "Road root folder depth should be 0");
     }
 
-  //   // Depth and position checks
-  //   Folder rofFileParent(FILE.parent());
-  //   log(rofFileParent.type() == std::filesystem::file_type::directory, "Road should create a directory for the parent path");
-  //   log(rofFileParent == std::filesystem::temp_directory_path(), "Road parent path should be the temp directory path");
-  //   log(road.depth() == EXPECTED_DEPTH, "Road should have the correct depth for temp file");
+    // renaming self
+    str_t previousName = road.name(); // Backup previous name
+    str_t tempName = TempFile().name(); // Deletes rvalue File after for access
+    maybe<void> resultBefore = road.rename_self_to(tempName); // Warning: cslib::File now points to invalid file
+    log(!!resultBefore, "Road should return a valid result when renaming");
+    log(road.name() == tempName, "Road should rename itself correctly");
+    maybe<void> resultAfter = road.rename_self_to(previousName); // Restore previous name
+    log(!road.rename_self_to("f/sf"), "Road should reject an attempt to move instead of renaming");
+    log(road.rename_self_to("f/sf").error() == "Filename can't be moved with this function (previous: '" + road.str() + "', new: 'f/sf')", "Road should throw the correct error upon move (on disk) attempt");
+    log(road.name() == previousName, "Even after failed attempts to rename, Road should retain its original name");
 
-  //   // renaming self
-  //   str_t previousName = road.name(); // Backup previous name
-  //   str_t tempName = TempFile().name(); // Deletes rvalue File after for access
-  //   road.rename_self_to(tempName); // Warning: FILE now points to invalid file
-  //   log(road.name() == tempName, "Road should rename itself correctly");
-  //   road.rename_self_to(previousName); // Restore previous name
-  //   log(try_result(fn(road.rename_self_to("/someFolder")), "contains path separators"), "Road should throw an error when trying to change location");
-  //   {
-  //     TempFile occupyFileName;
-  //     log(try_result(fn(road.rename_self_to(occupyFileName.name())), " already exists"), "Road should throw an error when trying to rename self to something existing");
-  //   }
+    // Equality and inequality checks
+    File roadCopy(road);
+    log(roadCopy == road, "Road == operator should work for same file paths");
+    log(roadCopy != Folder("../"), "Road != operator should work for different file paths");
+    log(roadCopy == FILE.str(), "Road == operator should work for strings");
+    log(roadCopy != (FILE.str() + "???"), "Road != operator should work for different strings");
 
-  //   // Equality and inequality checks
-  //   File roadCopy(road);
-  //   log(roadCopy == road, "Road == operator should work for same file paths");
-  //   log(roadCopy != Folder("../"), "Road != operator should work for different file paths");
-  //   log(roadCopy == FILE.str(), "Road == operator should work for strings");
-  //   log(roadCopy != (FILE.str() + "???"), "Road != operator should work for different strings");
+    // Conversions to other types
+    log(std::string(road) == FILE.str(), "Road should convert to string correctly");
+    std::filesystem::path& logFileAsFsRef = road;
+    log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
+    const std::filesystem::path& logFileAsFsConstRef = road;
+    log(logFileAsFsConstRef == road, "Road should convert to filesystem path const reference correctly");
+    std::filesystem::path logFileAsFsCopy = road;
+    log(logFileAsFsCopy == road, "Road should convert to filesystem path copy correctly");
+    std::filesystem::path* logFileAsFsPtr = road;
+    log(logFileAsFsPtr == (void*)&road, "Road should return its filesystem path pointer correctly");
+    const std::filesystem::path* logFileAsFsConstPtr = road;
+    log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
 
-  //   // Conversions to other types
-  //   log(std::string(road) == FILE.str(), "Road should convert to string correctly");
-  //   std::filesystem::path& logFileAsFsRef = road;
-  //   log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
-  //   const std::filesystem::path& logFileAsFsConstRef = road;
-  //   log(logFileAsFsConstRef == road, "Road should convert to filesystem path const reference correctly");
-  //   std::filesystem::path logFileAsFsCopy = road;
-  //   log(logFileAsFsCopy == road, "Road should convert to filesystem path copy correctly");
-  //   std::filesystem::path* logFileAsFsPtr = road;
-  //   log(logFileAsFsPtr == (void*)&road, "Road should return its filesystem path pointer correctly");
-  //   const std::filesystem::path* logFileAsFsConstPtr = road;
-  //   log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
+    // Construction (TODO)
+    log(try_result(fn(File("")), "Path empty"), "Protected Road constructor should throw an error for empty path");
+    std::filesystem::path _ = TempFile().str(); // Create and delete file to have reliable invaild filename
+    log(try_result(fn(File invaildName), "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
   }
 
 
 
-  // title("Skipping cslib::BizarreRoad due to limited testing tools");
+  title("Testing child cslib::BizarreRoad class of cslib::Road"); {
+  }
 
 
 

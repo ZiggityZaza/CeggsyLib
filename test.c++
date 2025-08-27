@@ -454,14 +454,14 @@ int main() {
     log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
 
     // Error handling
-    std::string errHeader = "cslib::any_error called in workspace \"/root/CeggsyLib\" on line ";
+    std::string errHeader = "cslib::any_error called in workspace \"/workspaces/CeggsyLib\" on line ";
     std::stringstream expectedErrTime;
     expectedErrTime << errHeader << "405 in function 'TimeStamp' because: "; // Shifts by line
-    expectedErrTime << "Invalid time: " << 25 << ':' << -1 << ':' << 61;
+    expectedErrTime << "Invalid time: 25:-1:61";
     log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), expectedErrTime.str()), "TimeStamp should throw an error for invalid time");
     std::stringstream expectedErrDate;
     expectedErrDate << errHeader << "402 in function 'TimeStamp' because: "; // Shifts by line
-    expectedErrDate << "Invalid date: " << 32 << '-' << 13 << '-' << -1;
+    expectedErrDate << "Invalid date: 32-13--1";
     log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), expectedErrDate.str()), "TimeStamp should throw an error for invalid date");
   }
 
@@ -492,25 +492,34 @@ int main() {
 
 
 
-  title("Testing cslib::Road on its own"); {
+  title("Testing cslib::Road on its children"); {
     const TempFile FILE;
 
-    // Read rentry properties
+    // Read entry properties
     File road(FILE.str());
     log(TimeStamp(road.last_modified()).as_str() == TimeStamp().as_str(), "Road should have the correct last modified time");
     log(road.type() == std::filesystem::file_type::regular, "Road should create a regular file");
 
-    // 
+    // Name and position checks
+    log(road.name() == road.isAt.filename(), "Road name should match filename");
+    #ifdef _WIN32
+      log(road.depth() == 6, "Road should have the correct depth for temp file"); // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
+    #else
+      log(road.depth() == 2, "Road should have the correct depth for temp file"); // e.g., /tmp/cslib
+    #endif
+    std::cout << "?" << std::filesystem::absolute("/") << std::endl;
+    maybe<Folder> root = road[0];
+    log(!!root, "Road should have a root folder");
+    if (root) {
+      str_t stdRoot = std::filesystem::current_path().root_path().string(); // "C:\" or "/"
+      log(root->name() == "C:"+stdRoot, to_str("Road root folder name should be root disk '") + "C:" + stdRoot + "' but is '" + root->name() + "'");
+      log(root->depth() == 0, "Road root folder depth should be 0");
+    }
 
   //   // Depth and position checks
   //   Folder rofFileParent(FILE.parent());
   //   log(rofFileParent.type() == std::filesystem::file_type::directory, "Road should create a directory for the parent path");
   //   log(rofFileParent == std::filesystem::temp_directory_path(), "Road parent path should be the temp directory path");
-  //   #ifdef _WIN32
-  //     const size_t EXPECTED_DEPTH = 6; // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
-  //   #else
-  //     const size_t EXPECTED_DEPTH = 2; // e.g., /tmp/cslib
-  //   #endif
   //   log(road.depth() == EXPECTED_DEPTH, "Road should have the correct depth for temp file");
 
   //   // renaming self

@@ -562,9 +562,9 @@ namespace cslib {
           size_t depth = path.depth();
           // depth = 3 (because there are 3 directories before the file)
       */
-      return separate(isAt.string(), to_str(PATH_SEPARATOR)).size() - 1;
+      return separate(this->str(), to_str(PATH_SEPARATOR)).size() - 1;
     }
-    Folder operator[](size_t _index) const noexcept;
+    maybe<Folder> operator[](size_t _index) const noexcept;
 
 
     maybe<void> rename_self_to(strv_t _newName) noexcept {
@@ -605,7 +605,7 @@ namespace cslib {
     protected: Road(const std::filesystem::path& _where) {
       if (_where.empty())
         cslib_throw_up("Path empty");
-      isAt = std::filesystem::absolute(_where);
+      isAt = std::filesystem::canonical(_where);
     } // Abstract class can't be instantiated
   };
 
@@ -620,7 +620,7 @@ namespace cslib {
 
     BizarreRoad() = default;
     BizarreRoad(const std::filesystem::path& _where) : Road(_where) {
-      if (!std::filesystem::exists(isAt))
+      if (!std::filesystem::exists(_where))
         cslib_throw_up("Path ", _where, " does not exist");
       if (this->type() == std::filesystem::file_type::regular or
           this->type() == std::filesystem::file_type::directory)
@@ -796,19 +796,22 @@ namespace cslib {
       }
     return std::nullopt;
   }
-  Folder Road::operator[](size_t _index) const noexcept {
+  maybe<Folder> Road::operator[](size_t _index) const noexcept {
     /*
       Find parent paths by layer
       Example:
         Folder f("/root/projects/folder");
         Folder root = f[0];
+        Folder self = f[f.depth()];
         Folder parent = f[f.depth()-1];
     */
-    str_t depths;
-    std::vector<str_t> paths = separate(isAt.string(), PATH_SEPARATOR);
-    for (size_t pos : range(paths.size()))
-      depths += paths.at(pos) + to_str(PATH_SEPARATOR);
-    return Folder(depths);
+    str_t pathAsStr;
+    std::vector<str_t> paths = separate("C:"+this->str(), PATH_SEPARATOR);
+    if (paths.size() <= _index)
+      return unexpect("Index ", _index, " out of bounds (max ", paths.size(), ") for path ", isAt);
+    for (size_t pos = 0; pos <= _index; ++pos)
+      pathAsStr += paths[pos] + PATH_SEPARATOR;
+    return Folder(pathAsStr);
   }
 
 

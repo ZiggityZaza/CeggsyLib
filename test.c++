@@ -56,7 +56,7 @@ void log(error_throw_kind_issue kind, const auto&... conditionsExplained) {
 }
 
 template <typename Exception_T = cslib::any_error>
-error_throw_kind_issue try_result(const auto& _func, std::string_view _expectError, const auto&... args) {
+error_throw_kind_issue try_result(const auto& _func, strv_t _expectError, const auto&... args) {
   try {
     _func(args...);
     return DIDNT_THROW;
@@ -75,6 +75,14 @@ error_throw_kind_issue try_result(const auto& _func, std::string_view _expectErr
   }
 }
 
+str_t cslib_throw_header(int _line, str_t place, const auto&... _msgs) {
+  std::ostringstream oss;
+  oss << "cslib::any_error called in workspace " << std::filesystem::current_path() << ' ';
+  oss << "on line " << _line << " in function '" << place << "' because: ";
+  ((oss << _msgs), ...);
+  return oss.str();
+}
+
 #define fn(...) [&] { __VA_ARGS__; } // inlined function aka lambda
 
 
@@ -89,19 +97,17 @@ int main() {
     log(to_str(3.14) == "3.14", "to_str(const auto&) double");
     log(to_str(std::filesystem::path(L"/path/to/file")) == "\"/path/to/file\"", "to_str(const auto&)");
     log(to_str('A') == "A", "to_str(const auto&)");
-    log(to_str(std::string("")) == "", "to_str(const auto&)");
-    log(to_str(std::string("Hello World")) == "Hello World", "to_str(const auto&)");
-    log(to_str(std::string("This is a pretty long string")) == "This is a pretty long string", "to_str(const auto&) long string");
-    log(to_str(std::string_view("Hello World")) == "Hello World", "to_str(const auto&)");
+    log(to_str(str_t("")) == "", "to_str(const auto&)");
+    log(to_str(str_t("Hello World")) == "Hello World", "to_str(const auto&)");
+    log(to_str(str_t("This is a pretty long string")) == "This is a pretty long string", "to_str(const auto&) long string");
+    log(to_str(strv_t("Hello World")) == "Hello World", "to_str(const auto&)");
   }
 
 
 
   title("Testing cslib::any_error and cslib_throw_up (Won't fix skipping)"); {
-    std::ostringstream shouldBeWhat; // e.what()
-    shouldBeWhat << "cslib::any_error called in workspace " << std::filesystem::current_path() << ' ';
-    shouldBeWhat << "on line " << __LINE__ + 1 << " in function '" << "operator()" << "' because: " << "CSLIB_1234.56"; // operator() because fn macro (else main)
-    log(try_result(fn(cslib_throw_up("CSLIB", '_', 123, 4.56f)), shouldBeWhat.str()), "cslib_throw_up should throw an error with correct message");
+    str_t shouldBeWhat = cslib_throw_header(__LINE__ + 1, "operator()",  "CSLIB_1234.56"); // operator() because fn macro (else main)
+    log(try_result(fn(cslib_throw_up("CSLIB", '_', 123, 4.56f)), shouldBeWhat), "cslib_throw_up should throw an error with correct message");
   }
 
 
@@ -456,15 +462,10 @@ int main() {
     log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
 
     // Error handling
-    std::string errHeader = "cslib::any_error called in workspace \"/workspaces/CeggsyLib\" on line ";
-    std::stringstream expectedErrTime;
-    expectedErrTime << errHeader << "412 in function 'TimeStamp' because: "; // Shifts by line
-    expectedErrTime << "Invalid time: 25:-1:61";
-    log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), expectedErrTime.str()), "TimeStamp should throw an error for invalid time");
-    std::stringstream expectedErrDate;
-    expectedErrDate << errHeader << "409 in function 'TimeStamp' because: "; // Shifts by line
-    expectedErrDate << "Invalid date: 32-13--1";
-    log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), expectedErrDate.str()), "TimeStamp should throw an error for invalid date");
+    str_t errHeaderTime = cslib_throw_header(412, "TimeStamp", "Invalid time: 25:-1:61"); // Shifts by line
+    log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), errHeaderTime), "TimeStamp should throw an error for invalid time");
+    str_t errHeaderDate = cslib_throw_header(409, "TimeStamp", "Invalid date: 32-13--1");
+    log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), errHeaderDate), "TimeStamp should throw an error for invalid date");
   }
 
 
@@ -536,7 +537,7 @@ int main() {
     log(roadCopy != (FILE.str() + "???"), "Road != operator should work for different strings");
 
     // Conversions to other types
-    log(std::string(road) == FILE.str(), "Road should convert to string correctly");
+    log(str_t(road) == FILE.str(), "Road should convert to string correctly");
     std::filesystem::path& logFileAsFsRef = road;
     log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
     const std::filesystem::path& logFileAsFsConstRef = road;
@@ -548,77 +549,38 @@ int main() {
     const std::filesystem::path* logFileAsFsConstPtr = road;
     log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
 
-    // Construction (TODO)
-    log(try_result(fn(File("")), "Path empty"), "Protected Road constructor should throw an error for empty path");
-    std::filesystem::path _ = TempFile().str(); // Create and delete file to have reliable invaild filename
-    log(try_result(fn(File invaildName), "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
+    // Construction (via BizarreRoad as Road::Road() is protected)
+    str_t errHeader = cslib_throw_header(632, "Road", "Path empty");
+    log(try_result(fn(BizarreRoad("")), errHeader), "Protected Road constructor should throw an error for empty path");
   }
 
 
 
-  title("Testing child cslib::BizarreRoad class of cslib::Road"); {
+  title("Skipping cslib::BizarreRoad due to limited testing tools/skills");
+
+
+
+  title("Testing child cslib::Folder class of cslib::Road"); {
+    TempFolder tempFolder;
+
+    // Construction
+    str_t voidFolder = TempFolder().str();
+    str_t errorHead = cslib_throw_header(670, "operator()", "Path '", voidFolder, "' is not a directory");
+    log(try_result(fn(Folder nonExistingFolder(voidFolder)), errorHead), "Folder constructor should throw an error for non-existing folder when trying to determine if path is a directory");
+    Folder folder(tempFolder.str(), true);
+    log(std::filesystem::exists(folder.str()), "Folder constructor should be able to create directories");
+
+    log(folder.list().empty(), "And that folder should be empty.");
+    TempFolder dummyFolder;
+    TempFile dummySubFile;
+    maybe<void> resultOfFileMove = dummySubFile.move_self_into(folder);
+    log(!!resultOfFileMove, "Moving a file into a folder should succeed");
+    log(std::filesystem::exists(folder.str() + "/" + dummySubFile.name()), "The file should exist in the folder");
+    maybe<void> resultOfFolderMove = dummyFolder.move_self_into(folder);
+    // dummySubFile is now invalid
+    log(folder.list().size() == 1, "Folder should be able to read its contents");
+    Folder 
   }
-
-
-
-  // title("Testing child cslib::Folder class of cslib::Path"); {
-  //   TempFolder tempFolder;
-
-  //   // Creation
-  //   log(try_result(fn(Folder nonExistingFolder("_its_unlikely_that_there_is_a_folder_with_this_name_")), "is not a directory"), "Folder constructor should throw an error for non-existing folder"); // Implicit for stl ::is_directory
-  //   log(try_result(fn(Folder emptyFolder("")), "Path empty"), "Folder constructor should throw an error for empty path");
-  //   log(try_result(fn(Folder invalidTypeFolder(TempFile().str())), "is not a directory"), "Folder constructor should throw an error for file path");
-
-  //   // Valid folder creation
-  //   log(std::filesystem::exists(tempFolder.wstr()), "Folder should be created at the specified path");
-  //   log(tempFolder.type() == std::filesystem::file_type::directory, "Folder should be of type directory");
-
-  //   // Try folder listing and checking
-  //   {
-  //     // Put stuff into place
-  //     TempFolder subFolder; // TempFolder/subfolder
-  //     subFolder.move_self_into(tempFolder);
-  //     TempFolder subsubFolder; // TempFolder/subfolder/subsubfolder
-  //     subsubFolder.move_self_into(subFolder);
-  //     TempFile subsubFile1, subFile2, subFile3;
-  //     subsubFile1.move_self_into(subsubFolder); // TempFolder/subfolder/subsubfolder/subsubFile1
-  //     subFile2.move_self_into(subFolder); // TempFolder/subfolder/subFile2
-  //     subFile3.move_self_into(subFolder); // TempFolder/subfolder/subFile3
-  //     log(subFolder.list().size() == 3, "Folder should have 3 items in the list");
-  //     str_t content = stringify_container(subFolder.list());
-  //     log(content.find(subsubFolder.str()) != str_t::npos, "Folder list should contain subfolder");
-  //     str_t relativeSubsubFolderPath = subsubFolder.str().substr(subsubFolder.parent().str().size() + 1); // +1 for the path separator
-  //     log(subFolder.has(relativeSubsubFolderPath), "Folder .has() method should recognize subfolder");
-  //     log(content.find(subFile2.str()) != str_t::npos, "Folder list should contain subFile2");
-  //     log(subFolder.has(subFile2), "Folder .has() method should recognize subFile2");
-  //     log(content.find(subFile3.str()) != str_t::npos, "Folder list should contain subFile3");
-  //     log(subFolder.has(subFile3), "Folder .has() method should recognize subFile3");
-  //   }
-  //   log(tempFolder.list().size() == 0, "Folder should be empty after temporary items are out of scope");
-
-  //   // Testing copy on disk methods
-  //   {
-  //     TempFolder dummyFolder;
-  //     TempFolder subFolder;
-  //     TempFile subFile, subsubFile;
-  //     subFolder.move_self_into(dummyFolder);
-  //     subFile.move_self_into(dummyFolder);
-  //     subsubFile.move_self_into(subFolder);
-  //     TempFolder targetFolder;
-  //     Folder dummyFolderCopy = dummyFolder.copy_self_into(targetFolder);
-  //     Folder dummySubCopyFolder;
-  //     for (const Road &item : dummyFolderCopy.list())
-  //       if (item.type() == std::filesystem::file_type::directory) {
-  //         dummySubCopyFolder = Folder(item.wstr());
-  //         break;
-  //       }
-  //     File dummySubFile(dummySubCopyFolder.list().front());
-  //     log(std::filesystem::exists(targetFolder.wstr()), "Target folder should exist after copy");
-  //     log(targetFolder.has(dummyFolderCopy), "Target folder should have dummyFolder after copy");
-  //     log(dummyFolderCopy.has(dummySubCopyFolder), "Dummy folder copy should have subfolder copy");
-  //     log(dummySubCopyFolder.has(dummySubFile), "Dummy subfolder copy should have subfile copy");
-  //   }
-  // }
 
 
 
@@ -638,7 +600,7 @@ int main() {
   //   log(tempFile.read_text() == "", "File should be empty after creation");
   //   tempFile.edit_text("Hello, world!");
   //   log(tempFile.read_text() == "Hello, world!", "File should be written correctly");
-  //   std::string binaryData;
+  //   str_t binaryData;
   //   for (char i : range(lowest_value_of<char>(), highest_value_of<char>())) // Append all kinds of possible data
   //     binaryData += i;
   //   tempFile.edit_binary(binaryData.data(), binaryData.size());
@@ -694,7 +656,7 @@ int main() {
 
   // title("Testing cslib::scramble_filename"); {
   //   log(cslib::scramble_filename().length() == SCRAMBLE_LEN, "Scrambled filename should have the correct length");
-  //   log(cslib::scramble_filename().find('?') == std::string::npos, "Scrambled filename should not contain the invalid character");
+  //   log(cslib::scramble_filename().find('?') == str_t::npos, "Scrambled filename should not contain the invalid character");
   // }
 
 
@@ -704,7 +666,7 @@ int main() {
 
 
   // title("Testing cslib::wget"); {
-  //   log(cslib::wget("https://www.example.com").find("<title>") != std::string::npos, "wget should retrieve the webpage");
+  //   log(cslib::wget("https://www.example.com").find("<title>") != str_t::npos, "wget should retrieve the webpage");
   // }
 
 

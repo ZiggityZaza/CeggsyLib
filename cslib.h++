@@ -667,12 +667,15 @@ namespace cslib {
       if (_createIfNotExists and !stdfs::exists(_where))
         stdfs::create_directory(_where);
       if (!stdfs::is_directory(_where))
-        cslib_throw_up("Path ", _where, " is not a directory");
+        cslib_throw_up("Path '", _where.string(), "' is not a directory");
       return _where;
     }()) {}
 
 
     std::vector<road_t> list() const noexcept;
+
+
+    maybe<road_t> operator[](strv_t _name) const noexcept;
 
 
     opt<road_t> has(strv_t _path) const noexcept;
@@ -681,8 +684,8 @@ namespace cslib {
     maybe<void> move_self_into(Folder& _newLocation) noexcept {
       /*
         Important note:
-          Upon moving, subfolders and files objects
-          will still point to the old location.
+          Upon moving, subfolder and file objects will
+          still point to the old location.
       */
       if (stdfs::exists(_newLocation.isAt / isAt.filename()))
         return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
@@ -762,11 +765,12 @@ namespace cslib {
     size_t bytes() const noexcept {return stdfs::file_size(isAt);}
 
 
-    maybe<void> move_self_into(Folder& _newLocation) noexcept {
+    [[nodiscard]] maybe<void> move_self_into(Folder& _newLocation) noexcept {
       if (stdfs::exists(_newLocation / isAt.filename()))
         return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
       stdfs::rename(isAt, _newLocation / isAt.filename());
       isAt = _newLocation / isAt.filename(); // Update the path
+      return {};
     }
 
 

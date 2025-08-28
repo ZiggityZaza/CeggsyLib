@@ -622,7 +622,6 @@ namespace cslib {
       return _out << _entry.str();
     }
 
-
     protected: Road() = default;
     protected: Road(stdfs::path _where) { // Abstract class can't be instantiated
       /*
@@ -672,31 +671,47 @@ namespace cslib {
     }()) {}
 
 
-    std::vector<road_t> list() const noexcept;
-
-
-    maybe<road_t> operator[](strv_t _name) const noexcept;
-
-
-    opt<road_t> has(strv_t _path) const noexcept;
-
-
-    maybe<void> move_self_into(Folder& _newLocation) noexcept {
-      /*
-        Important note:
-          Upon moving, subfolder and file objects will
-          still point to the old location.
-      */
-      if (stdfs::exists(_newLocation.isAt / isAt.filename()))
-        return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      stdfs::rename(isAt, _newLocation.isAt / isAt.filename());
-      isAt = _newLocation.isAt / isAt.filename();
+    stdfs::path operator/(stdfs::path _other) const noexcept {
+      return this->isAt / _other;
     }
 
 
-    Folder copy_self_into(Folder& _newLocation, stdfs::copy_options _options = stdfs::copy_options::recursive) const noexcept {
-      stdfs::copy(isAt, _newLocation.isAt / isAt.filename(), _options);
-      return Folder(_newLocation.isAt / isAt.filename());
+    std::vector<road_t> list() const noexcept;
+
+
+    maybe<opt<road_t>> has(strv_t _path) const noexcept;
+
+
+    maybe<void> move_self_into(Folder _parentDict) noexcept {
+      /*
+        Important note:
+          Upon moving, subfolder and file objects will still
+          point to the old location.
+      */
+      if (stdfs::exists(_parentDict / name()))
+        return unexpect("Path ", isAt, " already exists in folder ", _parentDict);
+      stdfs::rename(isAt, _parentDict / name());
+      isAt = _parentDict / name();
+      return {};
+    }
+
+
+    maybe<Folder> copy_self_into(Folder _parentDict) const noexcept {
+      if (stdfs::exists(_parentDict / name()))
+        return unexpect("Path '", str(), "' already exists in folder '", _parentDict.str(), "'");
+      stdfs::copy(isAt, _parentDict / name(), stdfs::copy_options::recursive);
+      return Folder(_parentDict / name());
+    }
+
+
+    maybe<void> copy_content_into(Folder _otherDir, stdfs::copy_options _options) const noexcept {
+      /*
+        Copying self with custom options for extra
+        control
+      */
+      // Todo: option safety
+      stdfs::copy(isAt, _otherDir, _options);
+      return {};
     }
   };
 
@@ -706,8 +721,8 @@ namespace cslib {
     /*
       Child class of RouteToFile that represents a file.
       Example:
-        File file("/gitstuff/cslib/cslib.h++");
-        str_t content = file.content();
+        File file("/root/story.txt");
+        str_t content = file.read_text();
         // content = "Around 50 years ago, a group of people..."
     */
     File() = default;
@@ -765,18 +780,18 @@ namespace cslib {
     size_t bytes() const noexcept {return stdfs::file_size(isAt);}
 
 
-    [[nodiscard]] maybe<void> move_self_into(Folder& _newLocation) noexcept {
-      if (stdfs::exists(_newLocation / isAt.filename()))
-        return unexpect("Path ", isAt, " already exists in folder ", _newLocation.isAt);
-      stdfs::rename(isAt, _newLocation / isAt.filename());
-      isAt = _newLocation / isAt.filename(); // Update the path
+    [[nodiscard]] maybe<void> move_self_into(Folder _newLocation) noexcept {
+      if (stdfs::exists(_newLocation / name()))
+        return unexpect("Path ", name(), " already exists in folder ", _newLocation.str());
+      stdfs::rename(isAt, _newLocation / name());
+      isAt = _newLocation / name(); // Update the path
       return {};
     }
 
 
-    File copy_self_into(Folder& _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
-      stdfs::copy(isAt, _newLocation / isAt.filename(), _options);
-      return File(_newLocation / isAt.filename());
+    File copy_self_into(Folder _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
+      stdfs::copy_file(isAt, _newLocation / name(), _options);
+      return File(_newLocation / name());
     }
   };
 
@@ -803,15 +818,22 @@ namespace cslib {
       }
     return result;
   }
-  opt<road_t> Folder::has(strv_t _lookFor) const noexcept {
+  maybe<opt<road_t>> Folder::has(strv_t _lookFor) const noexcept {
     /*
       Check if the folder contains a file or folder with
       the given relative path. If it does, return the
       corresponding Road object.
+      Note:
+        Path MUST be relative
       Example:
-        if (opt<road_t> road = folder.has("subfolder/subfile.txt"))
-          // Do something with the road
+        if (maybe<opt<road_t>> road = folder.has("subfolder/subfile.txt"))
+          if (*road)
+            // Do something with the road
     */
+    if (_lookFor.empty())
+      return unexpect("Path is empty");
+    if (_lookFor.at(0) == PATH_SEPARATOR)
+      return unexpect("Path is absolute");
     if (stdfs::exists(isAt / _lookFor))
       switch (stdfs::status(isAt / _lookFor).type()) {
         case stdfs::file_type::regular:
@@ -953,13 +975,19 @@ namespace cslib {
 
 
   template <typename T>
-  FIXED T& grab(const auto& _variant) noexcept {
+  FIXED const maybe<T&> get(const auto& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
       return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
   }
   template <typename T>
-  MACRO holds(const auto& _variant) {
+  FIXED maybe<T&> get(auto& _variant) noexcept {
+    if (!std::holds_alternative<T>(_variant))
+      return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
+    return std::get<T>(_variant);
+  }
+  template <typename T>
+  FIXED bool holds(const auto& _variant) {
     return std::holds_alternative<T>(_variant);
   }
 

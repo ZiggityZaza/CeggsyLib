@@ -481,16 +481,16 @@ int main() {
 
   title("Testing cslib::Benchmark"); {
     Benchmark bm1;
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for 0.05 seconds
     double elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 510, "Benchmark should measure time correctly (took ", elapsed, "ms)");
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for another 0.5 seconds
+    log(elapsed >= 49 && elapsed <= 51, "Benchmark should measure time correctly (took ", elapsed, "ms)");
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for another 0.5 seconds
     elapsed = bm1.elapsed_ms();
-    log(elapsed >= 998 && elapsed <= 1020, "Benchmark should measure time correctly after another 0.5 seconds (took ", elapsed, "ms)");
+    log(elapsed >= 98 && elapsed <= 102, "Benchmark should measure time correctly after another 0.05 seconds (took ", elapsed, "ms)");
     bm1.reset();
-    std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Sleep for 0.5 seconds after reset
+    std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for 0.05 seconds after reset
     elapsed = bm1.elapsed_ms();
-    log(elapsed >= 499 && elapsed <= 510, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
+    log(elapsed >= 49 && elapsed <= 51, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
   }
 
 
@@ -550,7 +550,7 @@ int main() {
     log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
 
     // Construction (via BizarreRoad as Road::Road() is protected)
-    str_t errHeader = cslib_throw_header(632, "Road", "Path empty");
+    str_t errHeader = cslib_throw_header(631, "Road", "Path empty");
     log(try_result(fn(BizarreRoad("")), errHeader), "Protected Road constructor should throw an error for empty path");
   }
 
@@ -565,21 +565,26 @@ int main() {
 
     // Construction
     str_t voidFolder = TempFolder().str();
-    str_t errorHead = cslib_throw_header(670, "operator()", "Path '", voidFolder, "' is not a directory");
+    str_t errorHead = cslib_throw_header(669, "operator()", "Path '", voidFolder, "' is not a directory");
     log(try_result(fn(Folder nonExistingFolder(voidFolder)), errorHead), "Folder constructor should throw an error for non-existing folder when trying to determine if path is a directory");
-    Folder folder(tempFolder.str(), true);
-    log(std::filesystem::exists(folder.str()), "Folder constructor should be able to create directories");
 
-    log(folder.list().empty(), "And that folder should be empty.");
+    // Read properties
+    log(tempFolder.list().empty(), "Folders should be empty at creation");
     TempFolder dummyFolder;
     TempFile dummySubFile;
-    maybe<void> resultOfFileMove = dummySubFile.move_self_into(folder);
-    log(!!resultOfFileMove, "Moving a file into a folder should succeed");
-    log(std::filesystem::exists(folder.str() + "/" + dummySubFile.name()), "The file should exist in the folder");
-    maybe<void> resultOfFolderMove = dummyFolder.move_self_into(folder);
-    // dummySubFile is now invalid
-    log(folder.list().size() == 1, "Folder should be able to read its contents");
-    Folder 
+
+    // Move
+    log(!!dummyFolder.move_self_into(tempFolder), "Moving a folder should succeed");
+    log(!!dummySubFile.move_self_into(dummyFolder), "Moving a file should work too");
+    log(std::filesystem::exists(dummyFolder.str() + "/" + dummySubFile.name()), "The subfile should exist in the folder");
+    log(tempFolder.list().size() == 1, "Folder should be able to read its contents");
+    log(std::get<Folder>(tempFolder.list().front()) == dummyFolder, "Folder should contain the moved file");
+
+    // Copy
+    TempFolder copyDest;
+    tempFolder.copy_self_into(copyDest);
+    log(std::filesystem::exists(copyDest / tempFolder.name() / dummyFolder.name() / dummySubFile.name()), "Copying should be recursive by default");
+    tempFolder.copy_self_into(copyDest);
   }
 
 

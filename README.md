@@ -17,8 +17,9 @@ int main() {
 A collection of namespaces, classes, functions and whatnot that comes in handy when writing modern code in C++. It's all open source (duh) and meant to be improved upon.
 
 #
-### I want to contribute! 🤺
-Coding is merely an expression art. Liberate yourself from professionalism and embrace wasting time on useless projects. Make a pr and after an frightening little amount of consideration, I <b>WILL</b> merge your changes.
+### I want to contribute! 🧌
+Why thank you <3
+<br>Coding is merely an expression art. Liberate yourself from professionalism and embrace wasting time on useless projects. Make a pr and after an frightening little amount of consideration, I <b>WILL</b> merge your changes.
 
 #
 ### How to use it?
@@ -31,7 +32,7 @@ int main() {
 }
 ```
 3. Write less code
-<img src="smile.jpg" width="17"/>
+<img src="https://raw.githubusercontent.com/ZiggityZaza/CeggsyLib/refs/heads/main/smile.jpg" width="17"/>
 
 #
 ### License

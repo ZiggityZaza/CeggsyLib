@@ -414,7 +414,7 @@ int main() {
 
   title("Testing cslib::read_data and cslib::do_io"); {
     const TempFile TEST_FILE;
-    TEST_FILE.edit_text("John\nMoney\n");
+    TEST_FILE.edit_text("John\nMoney\n").value(); // Ignore no-discard warning
     std::ifstream inFile(TEST_FILE);
     log(read_data(inFile) == "John\nMoney\n", "read_wdata file reading should return file content");
     log(read_data(inFile) == "John\nMoney\n", "read_wdata should still same content after reading again");
@@ -576,111 +576,48 @@ int main() {
     // Move
     log(!!dummyFolder.move_self_into(tempFolder), "Moving a folder should succeed");
     log(!!dummySubFile.move_self_into(dummyFolder), "Moving a file should work too");
+    log(!!tempFolder.find(dummyFolder.name()), "Folder should find its own subfolder");
+    log(!!dummyFolder.find(dummySubFile.name()), "Folder should find its own subfile");
     log(std::filesystem::exists(dummyFolder.str() + "/" + dummySubFile.name()), "The subfile should exist in the folder");
     log(tempFolder.list().size() == 1, "Folder should be able to read its contents");
     log(std::get<Folder>(tempFolder.list().front()) == dummyFolder, "Folder should contain the moved file");
 
-    // Copy
+    // Copy self
     TempFolder copyDest;
-    tempFolder.copy_self_into(copyDest);
+    maybe<Folder> copiedTempFolder = tempFolder.copy_self_into(copyDest);
     log(std::filesystem::exists(copyDest / tempFolder.name() / dummyFolder.name() / dummySubFile.name()), "Copying should be recursive by default");
-    tempFolder.copy_self_into(copyDest);
+    log(!tempFolder.copy_self_into(copyDest), "Copying shouldn't overwrite existing folders");
+    log(tempFolder.copy_self_into(copyDest).error() == "Path '" + tempFolder.str() + "' already exists in folder '" + copyDest.str() + "'", "Copying should fail with the correct error message");
+
+    // Copy content (skipped because those are std::filesystem tests)
   }
 
 
 
-  // title("Testing child class of cslib::Path, cslib::File"); {
-  //   TempFile tempFile;
+  title("Testing child class of cslib::Road, cslib::File"); {
+    TempFile tempFile;
 
-  //   // Creation
-  //   log(try_result(fn(File nonExistingFile("_its_unlikely_that_there_is_a_file_with_this_name_")), "is not a regular file"), "File constructor should throw an error for non-existing file"); // Implicit for stl ::is_regular_file
-  //   log(try_result(fn(File emptyFile("")), "Path empty"), "File constructor should throw an error for empty path");
-  //   log(try_result(fn(File invalidTypeFile(TempFolder().str())), "is not a regular file"), "File constructor should throw an error for directory path");
-
-  //   // Valid file creation
-  //   log(std::filesystem::exists(tempFile.wstr()), "File should be created at the specified path");
-  //   log(tempFile.type() == std::filesystem::file_type::regular, "File should be of type regular");
-
-  //   // File I/O
-  //   log(tempFile.read_text() == "", "File should be empty after creation");
-  //   tempFile.edit_text("Hello, world!");
-  //   log(tempFile.read_text() == "Hello, world!", "File should be written correctly");
-  //   str_t binaryData;
-  //   for (char i : range(lowest_value_of<char>(), highest_value_of<char>())) // Append all kinds of possible data
-  //     binaryData += i;
-  //   tempFile.edit_binary(binaryData.data(), binaryData.size());
-  //   log(tempFile.read_binary() == std::vector<char>(binaryData.begin(), binaryData.end()), "File should read binary data correctly");
-
-  //   // Other
-  //   log(tempFile.extension() == ".tmp", "Function should recognize the file extension");
-  //   log(tempFile.bytes() == binaryData.size(), "Function should return the correct file size");
-
-  //   // Move and copy on disk
-  //   TempFolder srcFolder;
-  //   TempFolder dstFolder;
-  //   tempFile.move_self_into(srcFolder);
-  //   log(tempFile.copy_self_into(dstFolder).read_binary() == tempFile.read_binary(), "File and its copy should have the same content");
-  // }
+    log(tempFile.read_text().value().empty() && tempFile.read_binary().value().empty(), "Newly created temp file should be empty");
+    log(!!tempFile.edit_binary(std::vector<int>({1}).data(), 1), "Binary-level edits should be possible");
+    log(!!tempFile.read_binary(), "Binary-level reads should be possible");
+    log(tempFile.read_binary().value() == std::vector<char>({1}), "Binary-level reads should return the correct data");
+    log(!!tempFile.edit_text("1"), "Text-level edits should be possible");
+    log(!!tempFile.read_text(), "Text-level reads should be possible");
+    log(tempFile.read_text().value() == "1", "Text-level reads should return the correct data");
+    log(tempFile.extension() == ".tmp", "Function should recognize the file extension including dot");
+    log(tempFile.bytes() == 1, "Function should return the correct file size");
+  }
 
 
 
-  // title("Testing cslib:Folder::typed_list (was implemented after declartion of cslib::File)"); {
-  //   TempFolder tempFolder;
-  //   TempFolder dummyFolder;
-  //   TempFile dummyFile, dummySubFile;
-  //   log(dummyFolder.typed_list().size() == 0, "Folder should be empty");
-  //   dummyFolder.move_self_into(tempFolder);
-  //   dummyFile.move_self_into(tempFolder);
-  //   dummySubFile.move_self_into(dummyFolder);
-  //   const std::vector<std::variant<File, Folder, Road>> typedList = tempFolder.typed_list();
-  //   int items = 0;
-  //   for (std::variant<File, Folder, Road> item : typedList)
-  //     if (std::holds_alternative<File>(item))
-  //       items++;
-  //   log(items == 1, "TempFolder should contain one file");
-  //   items = 0;
-  //   for (std::variant<File, Folder, Road> item : typedList)
-  //     if (std::holds_alternative<Folder>(item))
-  //       items++;
-  //   log(items == 1, "TempFolder should contain one subfolder");
-  //   items = 0;
-  //   for (std::variant<File, Folder, Road> item : typedList)
-  //     if (std::holds_alternative<Road>(item))
-  //       items++;
-  //   log(items == 0, "TempFolder shouldn't contain any other file types");
-  //   items = 0;
-  //   for (std::variant<File, Folder, Road> item : typedList)
-  //     if (std::holds_alternative<Folder>(item))
-  //       for (std::variant<File, Folder, Road> subItem : std::get<Folder>(item).typed_list())
-  //         if (std::holds_alternative<File>(subItem))
-  //           items++;
-  //   log(items == 1, "Subfolder of TempFolder should contain one file");
-  // }
+  title("Skipping cslib::TempFolder and cslib::File as they were tested previously");
 
 
 
-  // title("Testing cslib::scramble_filename"); {
-  //   log(cslib::scramble_filename().length() == SCRAMBLE_LEN, "Scrambled filename should have the correct length");
-  //   log(cslib::scramble_filename().find('?') == str_t::npos, "Scrambled filename should not contain the invalid character");
-  // }
-
-
-
-  // title("Skipping cslib::TempFolder and cslib::File as they were tested previously");
-
-
-
-  // title("Testing cslib::wget"); {
-  //   log(cslib::wget("https://www.example.com").find("<title>") != str_t::npos, "wget should retrieve the webpage");
-  // }
-
-
-
-  // title("Testing cslib::highest_value_of and cslib::lowest_value_of"); {
-  //   log(cslib::highest_value_of<char>() == std::numeric_limits<char>::max(), "highest_value_of<char> should return the maximum value of char");
-  //   log(cslib::lowest_value_of<char>() == std::numeric_limits<char>::min(), "lowest_value_of<char> should return the minimum value of char");
-  // }
-
+  title("Testing cslib::wget"); {
+    log(wget("https://www.example.com").value().find("<title>") != str_t::npos, "wget should retrieve the webpage");
+    log(!wget("impossible://.example.com"), "wget should fail for invalid URLs");
+  }
 
   if (failedTests != 0) {
     std::cout << "\n >> " << failedTests << " tests failed." << std::endl;

@@ -679,10 +679,10 @@ namespace cslib {
     std::vector<road_t> list() const noexcept;
 
 
-    maybe<opt<road_t>> has(strv_t _path) const noexcept;
+    maybe<road_t> find(strv_t _path) const noexcept;
 
 
-    maybe<void> move_self_into(Folder _parentDict) noexcept {
+    [[nodiscard]] maybe<void> move_self_into(Folder _parentDict) noexcept {
       /*
         Important note:
           Upon moving, subfolder and file objects will still
@@ -696,7 +696,7 @@ namespace cslib {
     }
 
 
-    maybe<Folder> copy_self_into(Folder _parentDict) const noexcept {
+    [[nodiscard]] maybe<Folder> copy_self_into(Folder _parentDict) const noexcept {
       if (stdfs::exists(_parentDict / name()))
         return unexpect("Path '", str(), "' already exists in folder '", _parentDict.str(), "'");
       stdfs::copy(isAt, _parentDict / name(), stdfs::copy_options::recursive);
@@ -704,12 +704,11 @@ namespace cslib {
     }
 
 
-    maybe<void> copy_content_into(Folder _otherDir, stdfs::copy_options _options) const noexcept {
+    [[nodiscard]] maybe<void> copy_content_into(Folder _otherDir, stdfs::copy_options _options) const noexcept {
       /*
         Copying self with custom options for extra
         control
       */
-      // Todo: option safety
       stdfs::copy(isAt, _otherDir, _options);
       return {};
     }
@@ -728,51 +727,56 @@ namespace cslib {
     File() = default;
     File(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {
       if (_createIfNotExists and !stdfs::exists(_where))
-        std::ofstream file(_where);
+        std::ofstream(_where) << "";
       if (!stdfs::is_regular_file(_where))
         cslib_throw_up("Path ", _where, " is not a regular file");
       return _where;
     }()) {}
 
 
-    std::ifstream reach_in(std::ios::openmode mode) const {
+    [[nodiscard]] maybe<std::ifstream> reach_in(std::ios::openmode mode) const noexcept {
       std::ifstream file(isAt, mode);
       if (!file.is_open() or !file.good())
-        cslib_throw_up("Failed to open file ", isAt);
+        return unexpect("Couldn't in-stream (read) '", str(), "'");
       return file;
     }
-    std::ofstream reach_out(std::ios::openmode mode) const {
+    [[nodiscard]] maybe<std::ofstream> reach_out(std::ios::openmode mode) const noexcept {
       std::ofstream file(isAt, mode);
       if (!file.is_open() or !file.good())
-        cslib_throw_up("Failed to open file ", isAt);
+        return unexpect("Couldn't out-stream (write) '", str(), "'");
       return file;
     }
 
-    str_t read_text() const {
-      std::ifstream file(reach_in(std::ios::in));
-      return str_t((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    [[nodiscard]] maybe<str_t> read_text() const noexcept {
+      maybe<std::ifstream> file(reach_in(std::ios::in));
+      if (!file) return unexpect(file.error());
+      return str_t((std::istreambuf_iterator<char>(*file)), std::istreambuf_iterator<char>());
     }
-    void edit_text(const auto& _newText) const {
-      reach_out(std::ios::out) << _newText;
+    [[nodiscard]] maybe<void> edit_text(const auto&... _newTexts) const noexcept {
+      maybe<std::ofstream> file(reach_out(std::ios::out | std::ios::trunc));
+      if (!file) return unexpect(file.error());
+      ((*file << _newTexts), ...);
+      return {};
     }
 
 
-    std::vector<byte_t> read_binary() const {
+    [[nodiscard]] maybe<std::vector<byte_t>> read_binary() const noexcept {
       /*
         Streambufs for byte-by-byte reading
         for raw data reading.
       */
-      std::ifstream file(reach_in(std::ios::binary));
+      maybe<std::ifstream> file(reach_in(std::ios::binary));
+      if (!file) return unexpect(file.error());
       return std::vector<byte_t> {
-        std::istreambuf_iterator<byte_t>(file),
+        std::istreambuf_iterator<byte_t>(*file),
         std::istreambuf_iterator<byte_t>()
       };
     }
-    void edit_binary(const auto *const _newData, size_t _len) const {
-      std::ofstream file(reach_out(std::ios::binary | std::ios::trunc));
-      file.write(reinterpret_cast<const char *const>(_newData), _len);
-      if (!file.good())
-        cslib_throw_up("Failed to write into file ", isAt);
+    [[nodiscard]] maybe<void> edit_binary(const auto *const _newData, size_t _len) const {
+      maybe<std::ofstream> file(reach_out(std::ios::binary | std::ios::trunc));
+      if (!file) return unexpect(file.error());
+      file->write(reinterpret_cast<const char *const>(_newData), _len);
+      return {};
     }
 
 
@@ -790,6 +794,10 @@ namespace cslib {
 
 
     File copy_self_into(Folder _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
+      /*
+        Copying self with custom options for extra
+        control
+      */
       stdfs::copy_file(isAt, _newLocation / name(), _options);
       return File(_newLocation / name());
     }
@@ -818,7 +826,7 @@ namespace cslib {
       }
     return result;
   }
-  maybe<opt<road_t>> Folder::has(strv_t _lookFor) const noexcept {
+  maybe<road_t> Folder::find(strv_t _lookFor) const noexcept {
     /*
       Check if the folder contains a file or folder with
       the given relative path. If it does, return the
@@ -832,8 +840,14 @@ namespace cslib {
     */
     if (_lookFor.empty())
       return unexpect("Path is empty");
-    if (_lookFor.at(0) == PATH_SEPARATOR)
-      return unexpect("Path is absolute");
+    if constexpr (IS_WINDOWS) {
+      if (_lookFor.at(2) == PATH_SEPARATOR and _lookFor.at(1) == ':') // C:\ (c = 0, : = 1, \ = 2)
+        return unexpect("Path is absolute");
+    }
+    else {
+      if (_lookFor.at(0) == PATH_SEPARATOR)
+        return unexpect("Path is absolute");
+    }
     if (stdfs::exists(isAt / _lookFor))
       switch (stdfs::status(isAt / _lookFor).type()) {
         case stdfs::file_type::regular:
@@ -843,7 +857,7 @@ namespace cslib {
         default:
           return BizarreRoad(isAt / _lookFor); // Other types (symlinks, sockets, etc.)
       }
-    return std::nullopt;
+    return unexpect("Couldn't find '", _lookFor, "' in here '", str(), "'");
   }
   maybe<Folder> Road::operator[](size_t _index) const noexcept {
     /*
@@ -863,12 +877,15 @@ namespace cslib {
 
 
 
-  MACRO SCRAMBLE_LEN = 2; // n^59 possible combinations
+  MACRO SCRAMBLE_LEN = 5; // 59^n possible combinations
   str_t scramble_filename() noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
       characters. The filename consists of uppercase and lowercase
       letters and digits.
+      Note:
+        If all possible names are exhausted, the calling code
+        will be stuck in an infinite loop.
     */
     std::ostringstream randomName;
     for ([[maybe_unused]] auto _ : range(SCRAMBLE_LEN))
@@ -951,49 +968,50 @@ namespace cslib {
 
   template <typename T>
   requires std::is_arithmetic_v<T>
-  MACRO highest_value_of() {
+  MACRO highest_value_of() noexcept {
     /*
       Get the highest possible value that
       the type T can represent.
     */
     if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::max();
     else if constexpr (std::is_floating_point_v<T>) return std::numeric_limits<T>::infinity();
-    cslib_throw_up("Unsupported type for highest_value_of");
+    cslib_throw_up("Unsupported type for highest_value_of (impossible)");
   }
   template <typename T>
   requires std::is_arithmetic_v<T>
-  MACRO lowest_value_of() {
+  MACRO lowest_value_of() noexcept {
     /*
       Get the lowest possible value that
       the type T can represent.
     */
     if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::lowest();
     else if constexpr (std::is_floating_point_v<T>) return -std::numeric_limits<T>::infinity();
-    cslib_throw_up("Unsupported type for lowest_value_of");
+    cslib_throw_up("Unsupported type for lowest_value_of (impossible)");
   }
 
 
 
-  template <typename T>
-  FIXED const maybe<T&> get(const auto& _variant) noexcept {
+  template <typename T, typename... VTs>
+  FIXED const maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
       return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
   }
-  template <typename T>
-  FIXED maybe<T&> get(auto& _variant) noexcept {
+  template <typename T, typename... VTs>
+  FIXED maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
       return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
   }
-  template <typename T>
-  FIXED bool holds(const auto& _variant) {
+  template <typename T, typename... VTs>
+  FIXED bool holds(const std::variant<VTs...>& _variant) {
     return std::holds_alternative<T>(_variant);
   }
 
 
 
   template <typename To = int>
+  requires std::is_arithmetic_v<To>
   FIXED maybe<To> to_int(const auto _number) noexcept {
     /*
       Gives an additional layer of safety when

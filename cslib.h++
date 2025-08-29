@@ -622,14 +622,27 @@ namespace cslib {
       return _out << _entry.str();
     }
 
+
+    // Abstract class shouldn't be instantiated
     protected: Road() = default;
-    protected: Road(stdfs::path _where) { // Abstract class can't be instantiated
+    protected: Road(stdfs::path _where) {
       /*
         Resolves the actual path for it's kids
       */
       if (_where.empty())
         cslib_throw_up("Path empty");
       isAt = where_is_path_really(_where);
+    }
+
+    static Road create_self(stdfs::path _where) {
+      /*
+        Creates a new instance of Road without
+        allowing global access of constructor
+        directly. Additional step to construct
+        should be taken to ensure proper
+        initialization
+      */
+      return Road(_where);
     }
   };
 
@@ -677,6 +690,14 @@ namespace cslib {
 
 
     std::vector<road_t> list() const noexcept;
+
+
+    std::vector<Road> untyped_list() const noexcept {
+      std::vector<Road> result;
+      for (const stdfs::directory_entry& entry : stdfs::directory_iterator(isAt))
+        result.emplace_back(Road::create_self(entry.path()));
+      return result;
+    }
 
 
     maybe<road_t> find(strv_t _path) const noexcept;

@@ -32,7 +32,7 @@ int main() {
 }
 ```
 3. Write less code
-<img src="https://raw.githubusercontent.com/ZiggityZaza/CeggsyLib/refs/heads/main/smile.jpg" width="17"/>
+<img src="https://raw.githubusercontent.com/ZiggityZaza/CeggsyLib/e78de9c0dbd292a3a6a3dbe7a580fa1b6eb78c41/smile.jpg" width="17"/>
 
 #
 ### License

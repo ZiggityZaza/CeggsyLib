@@ -565,7 +565,7 @@ int main() {
 
     // Construction
     str_t voidFolder = TempFolder().str();
-    str_t errorHead = cslib_throw_header(669, "operator()", "Path '", voidFolder, "' is not a directory");
+    str_t errorHead = cslib_throw_header(681, "operator()", "Path '", voidFolder, "' is not a directory");
     log(try_result(fn(Folder nonExistingFolder(voidFolder)), errorHead), "Folder constructor should throw an error for non-existing folder when trying to determine if path is a directory");
 
     // Read properties
@@ -580,6 +580,7 @@ int main() {
     log(!!dummyFolder.find(dummySubFile.name()), "Folder should find its own subfile");
     log(std::filesystem::exists(dummyFolder.str() + "/" + dummySubFile.name()), "The subfile should exist in the folder");
     log(tempFolder.list().size() == 1, "Folder should be able to read its contents");
+    log(tempFolder.untyped_list().size() == 1, "Folder untyped_list should be accurate too");
     log(std::get<Folder>(tempFolder.list().front()) == dummyFolder, "Folder should contain the moved file");
 
     // Copy self

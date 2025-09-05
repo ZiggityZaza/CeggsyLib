@@ -362,7 +362,7 @@ namespace cslib {
 
 
 
-  str_t read_data(std::istream& _inStream) {
+  maybe<str_t> read_data(std::istream& _inStream) noexcept {
     /*
       Read all data from the given istream and return it as a string.
       After reading, the stream is considered empty.
@@ -372,14 +372,17 @@ namespace cslib {
         by the caller. This function only cleans up its own changes.
     */
     if (!_inStream or !_inStream.good())
-      cslib_throw_up("std::istream is not good or in a bad state");
+      return unexpect("std::istream is not good or in a bad state");
     std::streampos previousPos = _inStream.tellg();
     str_t result{std::istreambuf_iterator<char>(_inStream), std::istreambuf_iterator<char>()};
     _inStream.seekg(previousPos);
     return result;
   }
-  void do_io(std::istream& _inStream, std::ostream& _outStream) {
-    _outStream << read_data(_inStream) << std::flush;
+  maybe<void> do_io(std::istream& _inStream, std::ostream& _outStream) noexcept {
+    maybe<str_t> data = read_data(_inStream);
+    if (!data)
+      return unexpect("Failed to read data: ", data.error());
+    _outStream << *data << std::flush;
   }
 
 
@@ -768,12 +771,12 @@ namespace cslib {
       return file;
     }
 
-    [[nodiscard]] maybe<str_t> read_text() const noexcept {
+    maybe<str_t> read_text() const noexcept {
       maybe<std::ifstream> file(reach_in(std::ios::in));
       if (!file) return unexpect(file.error());
       return str_t((std::istreambuf_iterator<char>(*file)), std::istreambuf_iterator<char>());
     }
-    [[nodiscard]] maybe<void> edit_text(const auto&... _newTexts) const noexcept {
+    maybe<void> edit_text(const auto&... _newTexts) const noexcept {
       maybe<std::ofstream> file(reach_out(std::ios::out | std::ios::trunc));
       if (!file) return unexpect(file.error());
       ((*file << _newTexts), ...);
@@ -814,7 +817,7 @@ namespace cslib {
     }
 
 
-    File copy_self_into(Folder _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
+    [[nodiscard]] File copy_self_into(Folder _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept {
       /*
         Copying self with custom options for extra
         control
@@ -899,6 +902,7 @@ namespace cslib {
 
 
   MACRO SCRAMBLE_LEN = 5; // 59^n possible combinations
+  static_assert(SCRAMBLE_LEN > 0, "SCRAMBLE_LEN must be greater than 0 so that temporary filenames can be generated");
   str_t scramble_filename() noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
@@ -1012,6 +1016,10 @@ namespace cslib {
 
 
 
+  /*
+    'I know what I am doing' functions to avoid repetitive
+    error handling code
+  */
   template <typename T, typename... VTs>
   FIXED const maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
@@ -1025,18 +1033,32 @@ namespace cslib {
     return std::get<T>(_variant);
   }
   template <typename T, typename... VTs>
-  FIXED bool holds(const std::variant<VTs...>& _variant) {
+  FIXED bool holds(const std::variant<VTs...>& _variant) noexcept {
     return std::holds_alternative<T>(_variant);
+  }
+  template <typename T, typename _>
+  FIXED T get(const std::expected<T, _>& _expected) noexcept {
+    /*
+      If you are certain that the expected contains
+      a value, use this to save code and have the
+      safety of throwing an error if it doesn't.
+    */
+    if (!_expected)
+      cslib_throw_up("Expected value but got error: ", _expected.error());
+    return _expected.value();
   }
 
 
 
   template <typename To = int>
   requires std::is_arithmetic_v<To>
-  FIXED maybe<To> to_int(const auto _number) noexcept {
+  FIXED maybe<To> to_number(const auto& _number) noexcept {
     /*
       Gives an additional layer of safety when
       converting numbers with different sizes.
+      For example when passing the size of a
+      container (size_t) to a function that
+      expects an int.
     */
     static_assert(std::is_arithmetic_v<decltype(_number)>, "Passing number type invalid");
     static_assert(std::is_arithmetic_v<To>, "Returning number type invalid");

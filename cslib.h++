@@ -622,7 +622,7 @@ namespace cslib {
     operator stdfs::path*() noexcept { return &this->isAt; }
     operator stdfs::path*() const noexcept { return const_cast<stdfs::path*>(&this->isAt); } // casted immutable
     friend std::ostream& operator<<(std::ostream& _out, const Road& _entry) noexcept {
-      return _out << _entry.str();
+      return _out << '\'' << _entry.str() << '\'';
     }
 
 
@@ -704,6 +704,9 @@ namespace cslib {
 
 
     maybe<road_t> find(strv_t _path) const noexcept;
+    maybe<road_t> find(Road _path) const noexcept {
+      return find(_path.name());
+    }
 
 
     [[nodiscard]] maybe<void> move_self_into(Folder _parentDict) noexcept {
@@ -1000,7 +1003,7 @@ namespace cslib {
     */
     if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::max();
     else if constexpr (std::is_floating_point_v<T>) return std::numeric_limits<T>::infinity();
-    cslib_throw_up("Unsupported type for highest_value_of (impossible)");
+    static_assert(!(std::is_integral_v<T> or std::is_floating_point_v<T>), "Unsupported type for highest_value_of (impossible)");
   }
   template <typename T>
   requires std::is_arithmetic_v<T>
@@ -1011,7 +1014,7 @@ namespace cslib {
     */
     if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::lowest();
     else if constexpr (std::is_floating_point_v<T>) return -std::numeric_limits<T>::infinity();
-    cslib_throw_up("Unsupported type for lowest_value_of (impossible)");
+    static_assert(!(std::is_integral_v<T> or std::is_floating_point_v<T>), "Unsupported type for lowest_value_of (impossible)")
   }
 
 

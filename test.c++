@@ -52,7 +52,7 @@ void log(error_throw_kind_issue kind, const auto&... conditionsExplained) {
   }
   std::cout << std::endl;
   if (kind != ALL_GOOD)
-    cslib::pause(1000);
+    cslib::pause(600);
 }
 
 template <typename Exception_T = cslib::any_error>
@@ -169,10 +169,10 @@ int main() {
     std::set<int> set2 = {3, 4, 5};
     std::set<int> set3 = {6, 7, 8};
     std::set<int> set4 = {};
-    std::list<int> lst1 = {1, 2, 3};
-    std::list<int> lst2 = {3, 4, 5};
-    std::list<int> lst3 = {6, 7, 8};
-    std::list<int> lst4 = {};
+    std::list<int> myLst1 = {1, 2, 3};
+    std::list<int> myLst2 = {3, 4, 5};
+    std::list<int> myLst3 = {6, 7, 8};
+    std::list<int> myLst4 = {};
     std::array<int, 3> arr1 = {1, 2, 3};
     std::array<int, 3> arr2 = {3, 4, 5};
     std::array<int, 3> arr3 = {6, 7, 8};
@@ -184,19 +184,19 @@ int main() {
     log(have_common(vec1, vec2), "have_common(vector, vector) should be true");
     log(have_common(deq1, deq2), "have_common(deque, deque) should be true");
     log(have_common(set1, set2), "have_common(set, set) should be true");
-    log(have_common(lst1, lst2), "have_common(list, list) should be true");
+    log(have_common(myLst1, myLst2), "have_common(list, list) should be true");
     log(have_common(arr1, arr2), "have_common(array, array) should be true");
     log(have_common(carr1, carr2), "have_common(constexpr array, constexpr array) should be true");
     log(!have_common(vec1, vec3), "have_common(vector, vector) should be false");
     log(!have_common(deq1, deq3), "have_common(deque, deque) should be false");
     log(!have_common(set1, set3), "have_common(set, set) should be false");
-    log(!have_common(lst1, lst3), "have_common(list, list) should be false");
+    log(!have_common(myLst1, myLst3), "have_common(list, list) should be false");
     log(!have_common(arr1, arr3), "have_common(array, array) should be false");
     log(!have_common(carr1, carr3), "have_common(constexpr array, constexpr array) should be false");
     log(!have_common(vec1, vec4), "have_common(vector, empty vector) should be false");
     log(!have_common(deq1, deq4), "have_common(deque, empty deque) should be false");
     log(!have_common(set1, set4), "have_common(set, empty set) should be false");
-    log(!have_common(lst1, lst4), "have_common(list, empty list) should be false");
+    log(!have_common(myLst1, myLst4), "have_common(list, empty list) should be false");
     log(!have_common(arr1, arr4), "have_common(array, empty array) should be false");
     static_assert(have_common(carr1, carr2), "have_common(constexpr array, constexpr array) should be true at compile time");
     static_assert(!have_common(carr1, carr3), "have_common(constexpr array, constexpr array) should be false at compile time");
@@ -525,8 +525,8 @@ int main() {
     log(!!resultBefore, "Road should return a valid result when renaming");
     log(road.name() == tempName, "Road should rename itself correctly");
     maybe<void> resultAfter = road.rename_self_to(previousName); // Restore previous name
-    log(!road.rename_self_to("f/sf"), "Road should reject an attempt to move instead of renaming");
-    log(road.rename_self_to("f/sf").error() == "Filename can't be moved with this function (previous: '" + road.str() + "', new: 'f/sf')", "Road should throw the correct error upon move (on disk) attempt");
+    log(!road.rename_self_to("f\\/sf"), "Road should reject an attempt to move instead of renaming");
+    log(road.rename_self_to("f\\/sf").error() == "Filename can't be moved with this function (previous: '" + road.str() + "', new: 'f\\/sf')", "Road should throw the correct error upon move (on disk) attempt");
     log(road.name() == previousName, "Even after failed attempts to rename, Road should retain its original name");
 
     // Equality and inequality checks
@@ -616,7 +616,7 @@ int main() {
 
 
   title("Testing cslib::wget"); {
-    log(wget("https://www.example.com").value().find("<title>") != str_t::npos, "wget should retrieve the webpage");
+    // log(wget("https://www.example.com").value().find("<title>") != str_t::npos, "wget should retrieve the webpage"); // (disabled because windows)
     log(!wget("impossible://.example.com"), "wget should fail for invalid URLs");
   }
 

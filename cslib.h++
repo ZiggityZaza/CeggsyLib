@@ -116,6 +116,18 @@ namespace cslib {
     }()) {}
   };
   #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __func__, __VA_ARGS__)
+  void exit_because(size_t _lineInCode, const auto&... _msgs) noexcept {
+    /*
+      Terminate the program with a custom error message.
+      Example:
+        cslib::exit_because(__LINE__, "Something went wrong");
+    */
+    std::cerr << "Program terminated in workspace " << stdfs::current_path() << ' ';
+    std::cerr << "on line " << _lineInCode << " in function '" << __func__ << "' because: ";
+    ((std::cerr << _msgs), ...);
+    std::cerr << "\nGood bye!" << std::flush;
+    std::exit(EXIT_FAILURE);
+  }
 
 
 
@@ -190,6 +202,23 @@ namespace cslib {
     if (envCStr == NULL)
       return unexpect("Environment variable '", _var, "' not found");
     return str_t(envCStr);
+  }
+
+
+
+  template <typename T>
+  [[nodiscard]] T fake_return() {
+    /*
+      Keep the compiler shut up about missing return
+      in a function that doesn't return or returns
+      in a different way which the compiler can't
+      detect.
+      Note:
+        This function should never be reached.
+    */
+    T* dummy = nullptr;
+    throw std::logic_error("Reached supposedly unreachable code in cslib::fake_return");
+    return *dummy;
   }
 
 
@@ -809,15 +838,18 @@ namespace cslib {
         corresponding Road object.
         Note:
           Path MUST be relative
+        Note 2:
+          Using [] operator instead of .at() to avoid exceptions
+          and to allow checking for existence
       */
       if (_lookFor.empty())
         return unexpect("Path is empty");
       if constexpr (IS_WINDOWS) {
-        if (_lookFor.at(2) == PATH_SEPARATOR and _lookFor.at(1) == ':') // C:\ (c = 0, : = 1, \ = 2)
+        if (_lookFor[2] == PATH_SEPARATOR and _lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
           return unexpect("Path starts with a drive letter and a path separator, thus is absolute");
       }
       else {
-        if (_lookFor.at(0) == PATH_SEPARATOR)
+        if (_lookFor[0] == PATH_SEPARATOR)
           return unexpect("Path starts with a path separator, thus is absolute");
       }
       if (stdfs::exists(isAt / _lookFor))
@@ -847,6 +879,7 @@ namespace cslib {
         return Road::create_self(std::get<Folder>(*road).isAt);
       else if (std::holds_alternative<BizarreRoad>(*road))
         return Road::create_self(std::get<BizarreRoad>(*road).isAt);
+      return fake_return<maybe<Road>>();
     }
     maybe<Road> untyped_find(Road _path) const noexcept {
       return untyped_find(_path.name());
@@ -1014,26 +1047,22 @@ namespace cslib {
 
 
   template <typename T>
-  requires std::is_arithmetic_v<T>
+  requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
   MACRO highest_value_of() noexcept {
     /*
       Get the highest possible value that
       the type T can represent.
     */
-    if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::max();
-    else if constexpr (std::is_floating_point_v<T>) return std::numeric_limits<T>::infinity();
-    static_assert(!(std::is_integral_v<T> or std::is_floating_point_v<T>), "Unsupported type for highest_value_of (impossible)");
+    return std::numeric_limits<T>::max();
   }
   template <typename T>
-  requires std::is_arithmetic_v<T>
+  requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
   MACRO lowest_value_of() noexcept {
     /*
       Get the lowest possible value that
       the type T can represent.
     */
-    if constexpr (std::is_integral_v<T>) return std::numeric_limits<T>::lowest();
-    else if constexpr (std::is_floating_point_v<T>) return -std::numeric_limits<T>::infinity();
-    static_assert(!(std::is_integral_v<T> or std::is_floating_point_v<T>), "Unsupported type for lowest_value_of (impossible)");
+    return std::numeric_limits<T>::lowest();
   }
 
 
@@ -1072,9 +1101,9 @@ namespace cslib {
 
 
 
-  template <typename To = int>
-  requires std::is_arithmetic_v<To>
-  FIXED maybe<To> to_number(const auto& _number) noexcept {
+  template <typename To = int, typename From>
+  requires (std::is_arithmetic_v<From> and std::is_arithmetic_v<To>)
+  FIXED maybe<To> to_number(const From& _number) noexcept {
     /*
       Gives an additional layer of safety when
       converting numbers with different sizes.
@@ -1082,9 +1111,7 @@ namespace cslib {
       container (size_t) to a function that
       expects an int.
     */
-    static_assert(std::is_arithmetic_v<decltype(_number)>, "Passing number type invalid");
-    static_assert(std::is_arithmetic_v<To>, "Returning number type invalid");
-    static_assert(!std::is_same_v<decltype(_number), To>, "Conversion between same types is not necessary");
+    static_assert(!std::is_same_v<From, To>, "Conversion between same types is not necessary");
     if (_number < lowest_value_of<To>() or _number > highest_value_of<To>())
       return unexpect("Number ", _number, " is higher/lower than ", lowest_value_of<To>(), "/", highest_value_of<To>());
     return To(_number);

@@ -62,21 +62,15 @@ namespace cslib {
   using cstr = const char *const; // C-style string
   using str_t = std::string;
   using strv_t = std::string_view;
-  using byte_t = char;
-  /*
+  using byte_t = char; /*
     Differentiate between a char as byte and
-    a char as character in a string
-  */
+    a char as character in a string */
   template <typename T>
   using cptr = const T *const;
-  template <typename T>
-  using opt = std::optional<T>;
-  using maybe_err_t = str_t; // Contains error message
-  template <typename T, typename Or = maybe_err_t>
+  template <typename T, typename Or = str_t> // Contains error message
   using maybe = std::expected<T, Or>;
   namespace stdfs = std::filesystem;
   #define MACRO inline constexpr auto // Macros for macro definitions
-  #define FIXED inline constexpr // Explicit alternative for MACRO
   MACRO IS_WINDOWS = [] {
     #ifdef _WIN32
       return true;
@@ -101,7 +95,7 @@ namespace cslib {
       Example:
         throw cslib::any_error("Something went wrong");
     */
-    any_error(size_t _lineInCode, strv_t _funcName, const auto&... _msgs) : std::runtime_error([_lineInCode, &_funcName, &_msgs... ] {
+    any_error(size_t _lineInCode, strv_t _funcName, const auto&... _msgs) : std::runtime_error([_lineInCode, &_funcName, &_msgs... ] noexcept {
       /*
         Create a custom error message with the given messages.
         Example:
@@ -118,9 +112,9 @@ namespace cslib {
   #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __func__, __VA_ARGS__)
   void exit_because(size_t _lineInCode, const auto&... _msgs) noexcept {
     /*
-      Terminate the program with a custom error message.
+      Exit the program with a custom error message.
       Example:
-        cslib::exit_because(__LINE__, "Something went wrong");
+        cslib::exit_because(__LINE__, "Something went wrong but we can't throw");
     */
     std::cerr << "Program terminated in workspace " << stdfs::current_path() << ' ';
     std::cerr << "on line " << _lineInCode << " in function '" << __func__ << "' because: ";
@@ -166,7 +160,7 @@ namespace cslib {
 
 
 
-  MACRO contains(const auto& _lookIn, const auto& _lookFor) {
+  inline constexpr bool contains(const auto& _lookIn, const auto& _lookFor) {
     /*
       Checks if element `_lookFor` is in `_lookIn` and
       if so, returns a ptr to the first instance of
@@ -180,7 +174,7 @@ namespace cslib {
         return true;
     return false;
   }
-  MACRO have_common(const auto& _cont1, const auto& _cont2) {
+  inline constexpr bool have_common(const auto& _cont1, const auto& _cont2) {
     /*
       Checks if any element in `_cont1` is also in `_cont2`
       Note:
@@ -326,7 +320,7 @@ namespace cslib {
 
 
   MACRO TRIM_WITH = "...";
-  FIXED maybe<str_t> shorten_end(strv_t _strsv, size_t _maxLength) noexcept {
+  inline constexpr maybe<str_t> shorten_end(strv_t _strsv, size_t _maxLength) noexcept {
     /*
       Example:
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
@@ -338,7 +332,7 @@ namespace cslib {
     return str_t(_strsv.substr(0, _maxLength - strlen(TRIM_WITH))) + TRIM_WITH;
   }
 
-  FIXED maybe<str_t> shorten_begin(strv_t _strsv, size_t _maxLength) noexcept {
+  inline constexpr maybe<str_t> shorten_begin(strv_t _strsv, size_t _maxLength) noexcept {
     /*
       Example:
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
@@ -1048,7 +1042,7 @@ namespace cslib {
 
   template <typename T>
   requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
-  MACRO highest_value_of() noexcept {
+  inline constexpr T highest_value_of() noexcept {
     /*
       Get the highest possible value that
       the type T can represent.
@@ -1057,7 +1051,7 @@ namespace cslib {
   }
   template <typename T>
   requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
-  MACRO lowest_value_of() noexcept {
+  inline constexpr T lowest_value_of() noexcept {
     /*
       Get the lowest possible value that
       the type T can represent.
@@ -1072,23 +1066,23 @@ namespace cslib {
     error handling code
   */
   template <typename T, typename... VTs>
-  FIXED const maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
+  inline constexpr const maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
       return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
   }
   template <typename T, typename... VTs>
-  FIXED maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
+  inline constexpr maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
     if (!std::holds_alternative<T>(_variant))
       return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
     return std::get<T>(_variant);
   }
   template <typename T, typename... VTs>
-  FIXED bool holds(const std::variant<VTs...>& _variant) noexcept {
+  inline constexpr bool holds(const std::variant<VTs...>& _variant) noexcept {
     return std::holds_alternative<T>(_variant);
   }
   template <typename T, typename _>
-  FIXED T get(const std::expected<T, _>& _expected) noexcept {
+  inline constexpr T get(const std::expected<T, _>& _expected) noexcept {
     /*
       If you are certain that the expected contains
       a value, use this to save code and have the
@@ -1103,7 +1097,7 @@ namespace cslib {
 
   template <typename To = int, typename From>
   requires (std::is_arithmetic_v<From> and std::is_arithmetic_v<To>)
-  FIXED maybe<To> to_number(const From& _number) noexcept {
+  inline constexpr maybe<To> to_number(const From& _number) noexcept {
     /*
       Gives an additional layer of safety when
       converting numbers with different sizes.

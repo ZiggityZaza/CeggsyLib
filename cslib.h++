@@ -1,44 +1,18 @@
 // LICENSE: ☝️🤓
 
 // Including every single header that might ever be needed
-#include <condition_variable>
 #include <initializer_list>
-#include <unordered_map>
-#include <unordered_set>
-#include <string_view>
-#include <stop_token>
 #include <filesystem>
-#include <functional>
-#include <stdexcept>
-#include <algorithm>
-#include <iostream> // Already contains many libraries
-#include <optional>
 #include <expected>
-#include <utility>
 #include <fstream>
+#include <cstring>
 #include <sstream>
 #include <variant>
-#include <cstring>
-#include <cstdint>
-#include <cstddef>
-#include <cctype>
-#include <cstdio>
 #include <random>
 #include <vector>
 #include <chrono>
 #include <thread>
-#include <locale>
 #include <array>
-#include <deque>
-#include <cmath>
-#include <list>
-#include <map>
-#include <set>
-#ifdef _WIN32
-  #include <windows.h>
-  #include <io.h>
-  #include <fcntl.h>
-#endif
 
 
 #pragma once
@@ -116,10 +90,12 @@ namespace cslib {
       Example:
         cslib::exit_because(__LINE__, "Something went wrong but we can't throw");
     */
-    std::cerr << "Program terminated in workspace " << stdfs::current_path() << ' ';
-    std::cerr << "on line " << _lineInCode << " in function '" << __func__ << "' because: ";
-    ((std::cerr << _msgs), ...);
-    std::cerr << "\nGood bye!" << std::flush;
+    #if false // No output because iostream is disabled
+      std::cerr << "Program terminated in workspace " << stdfs::current_path() << ' ';
+      std::cerr << "on line " << _lineInCode << " in function '" << __func__ << "' because: ";
+      ((std::cerr << _msgs), ...);
+      std::cerr << "\nGood bye!" << std::flush;
+    #endif
     std::exit(EXIT_FAILURE);
   }
 
@@ -325,11 +301,11 @@ namespace cslib {
       Example:
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
-    if (_maxLength < strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+    if (_maxLength < std::strlen(TRIM_WITH))
+      return unexpect("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
-    return str_t(_strsv.substr(0, _maxLength - strlen(TRIM_WITH))) + TRIM_WITH;
+    return str_t(_strsv.substr(0, _maxLength - std::strlen(TRIM_WITH))) + TRIM_WITH;
   }
 
   inline constexpr maybe<str_t> shorten_begin(strv_t _strsv, size_t _maxLength) noexcept {
@@ -337,11 +313,11 @@ namespace cslib {
       Example:
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
-    if (_maxLength < strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+    if (_maxLength < std::strlen(TRIM_WITH))
+      return unexpect("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
     if (_strsv.length() <= _maxLength)
       return str_t(_strsv);
-    return str_t(TRIM_WITH) + str_t(_strsv.substr(_strsv.length() - (_maxLength - strlen(TRIM_WITH))));
+    return str_t(TRIM_WITH) + str_t(_strsv.substr(_strsv.length() - (_maxLength - std::strlen(TRIM_WITH))));
   }
 
 
@@ -778,7 +754,7 @@ namespace cslib {
       Example:
         Folder folder("/gitstuff/cslib");
         if (folder.has(Road("/gitstuff/cslib/cslib.h++")))
-          std::wcout << "Folder contains the file\n";
+          std::cout << "Folder contains the file\n";
     */
     Folder() = default;
     Folder(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {

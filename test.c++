@@ -1,4 +1,9 @@
 #include "./cslib.h++"
+#include <iostream>
+#include <deque>
+#include <set>
+#include <list>
+#include <functional>
 using namespace cslib;
 
 

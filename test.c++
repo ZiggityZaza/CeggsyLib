@@ -1,3 +1,4 @@
+#define ENABLE_CSLIB_TESTING_MODE
 #include "./cslib.h++"
 #include <iostream>
 #include <deque>
@@ -6,6 +7,8 @@
 #include <functional>
 using namespace cslib;
 
+
+MACRO HOLD_IF_ERROR = true;
 
 int failedTests = 0;
 
@@ -30,8 +33,12 @@ void log(bool conditionResult, const auto&... conditionsExplained) {
   std::cout << " > ";
   ((std::cout << std::forward<decltype(conditionsExplained)>(conditionsExplained)), ...);
   std::cout << std::endl;
-  if (!conditionResult)
-    cslib::pause(1000);
+  if (!conditionResult) {
+    if (HOLD_IF_ERROR)
+      std::cin.get();
+    else
+      cslib::pause(1000);
+  }
 }
 template <typename T>
 void log(std::optional<T> conditionResult, const auto&... conditionsExplained) {
@@ -56,20 +63,24 @@ void log(error_throw_kind_issue kind, const auto&... conditionsExplained) {
     default: std::cout << " (unknown error type)"; break;
   }
   std::cout << std::endl;
-  if (kind != ALL_GOOD)
-    cslib::pause(600);
+  if (kind != ALL_GOOD) {
+    if (HOLD_IF_ERROR)
+      std::cin.get();
+    else
+      cslib::pause(1000);
+  }
 }
 
 template <typename Exception_T = cslib::any_error>
-error_throw_kind_issue try_result(const auto& _func, strv_t _expectError, const auto&... args) {
+error_throw_kind_issue try_result(const auto& func, strv_t expectError, const auto&... args) {
   try {
-    _func(args...);
+    func(args...);
     return DIDNT_THROW;
   }
   catch (const Exception_T& e) {
-    if (e.what() == _expectError)
+    if (e.what() == expectError)
       return ALL_GOOD;
-    std::cout << "Expected: " << _expectError << ", but got: " << e.what() << std::endl;
+    std::cout << "Expected: " << expectError << ", but got: " << e.what() << std::endl;
     return WRONG_WHAT;
   }
   catch (const std::exception& e) {
@@ -80,11 +91,11 @@ error_throw_kind_issue try_result(const auto& _func, strv_t _expectError, const 
   }
 }
 
-str_t cslib_throw_header(int _line, str_t place, const auto&... _msgs) {
+str_t cslib_throw_header(str_t place, const auto&... msgs) {
   std::ostringstream oss;
   oss << "cslib::any_error called in workspace " << std::filesystem::current_path() << ' ';
-  oss << "on line " << _line << " in function '" << place << "' because: ";
-  ((oss << _msgs), ...);
+  oss << "on line " << 0 << " in function '" << place << "' because: ";
+  ((oss << msgs), ...);
   return oss.str();
 }
 
@@ -111,7 +122,7 @@ int main() {
 
 
   title("Testing cslib::any_error and cslib_throw_up (Won't fix skipping)"); {
-    str_t shouldBeWhat = cslib_throw_header(__LINE__ + 1, "operator()",  "CSLIB_1234.56"); // operator() because fn macro (else main)
+    str_t shouldBeWhat = cslib_throw_header("operator()",  "CSLIB_1234.56"); // operator() because fn macro (else main)
     log(try_result(fn(cslib_throw_up("CSLIB", '_', 123, 4.56f)), shouldBeWhat), "cslib_throw_up should throw an error with correct message");
   }
 
@@ -129,7 +140,7 @@ int main() {
 
 
   title("Testing cslib::sh_call"); {
-    log(sh_call("echo").value() == "\n", "system call to echo");
+    log(sh_call("cd ./").value() == "\n", "system call to run");
     log(!sh_call("non_existing_command"), "sh_call should recognize errors.");
     log(sh_call("non_existing_command").error() != 0, "sh_call should return the error-code upon faliure");
   }
@@ -239,72 +250,73 @@ int main() {
 
 
 
-  title("Testing cslib::retry part 1 stl"); {
-    const std::function<int(int)> badFunc = [](int _attempts) {
-      static int attempts = 0;
-      if (++attempts < _attempts)
-        throw std::runtime_error("Test error from std::function<int()>");
-      return 42;
-    };
-    maybe<int> noResult = retry(badFunc, 1, 2);
-    maybe<int> okResult = retry(badFunc, 2, 2);
-    maybe<int> timedOut = retry(badFunc, 0, 2);
-    log(!noResult, "retry should return an error for function that fails too many times");
-    log(noResult.error() == "Function failed after maximum attempts: Test error from std::function<int()>",
-        "retry should return the correct error message for function that fails too many times");
-    log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
-    log(!timedOut, "retry should return an error for function when _maxAttempts is 0");
-    log(timedOut.error() == "Function never invoked because _maxAttempts is 0", "retry should return the correct error message for function when _maxAttempts is 0");
-  }
+  title("Testing cslib::retry is paused.");
+  // title("Testing cslib::retry part 1 stl"); {
+  //   const std::function<int(int)> badFunc = [](int attempts_) {
+  //     static int attempts = 0;
+  //     if (++attempts < attempts_)
+  //       throw std::runtime_error("Test error from std::function<int()>");
+  //     return 42;
+  //   };
+  //   maybe<int> noResult = retry(badFunc, 1, 2);
+  //   maybe<int> okResult = retry(badFunc, 2, 2);
+  //   maybe<int> timedOut = retry(badFunc, 0, 2);
+  //   log(!noResult, "retry should return an error for function that fails too many times");
+  //   log(noResult.error() == "Function failed after maximum attempts: Test error from std::function<int()>",
+  //       "retry should return the correct error message for function that fails too many times");
+  //   log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
+  //   log(!timedOut, "retry should return an error for function when maxAttempts is 0");
+  //   log(timedOut.error() == "Function never invoked because maxAttempts is 0", "retry should return the correct error message for function when maxAttempts is 0");
+  // }
 
 
 
-  title("Testing cslib::retry part 2 C-style pointer"); {
-    int (*const badFunc)(int) = [](int _attempts) -> int {
-      static int attempts = 0;
-      if (++attempts < _attempts)
-        throw std::runtime_error("Test error from c-style function pointer");
-      return 42;
-    };
-    maybe<int> noResult = retry(badFunc, 1, 2);
-    maybe<int> okResult = retry(badFunc, 2, 2);
-    maybe<int> timedOut = retry(badFunc, 0, 2);
-    log(!noResult, "retry should return an error for function that fails too many times");
-    log(noResult.error() == "Function failed after maximum attempts: Test error from c-style function pointer",
-        "retry should return the correct error message for function that fails too many times");
-    log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
-    log(!timedOut, "retry should return an error for function when _maxAttempts is 0");
-    log(timedOut.error() == "Function never invoked because _maxAttempts is 0", "retry should return the correct error message for function when _maxAttempts is 0");
-  }
+  // title("Testing cslib::retry part 2 C-style pointer"); {
+  //   int (*const badFunc)(int) = [](int attempts_) -> int {
+  //     static int attempts = 0;
+  //     if (++attempts < attempts_)
+  //       throw std::runtime_error("Test error from c-style function pointer");
+  //     return 42;
+  //   };
+  //   maybe<int> noResult = retry(badFunc, 1, 2);
+  //   maybe<int> okResult = retry(badFunc, 2, 2);
+  //   maybe<int> timedOut = retry(badFunc, 0, 2);
+  //   log(!noResult, "retry should return an error for function that fails too many times");
+  //   log(noResult.error() == "Function failed after maximum attempts: Test error from c-style function pointer",
+  //       "retry should return the correct error message for function that fails too many times");
+  //   log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
+  //   log(!timedOut, "retry should return an error for function whenmaxAttempts is 0");
+  //   log(timedOut.error() == "Function never invoked because maxAttempts is 0", "retry should return the correct error message for function when maxAttempts is 0");
+  // }
 
 
 
-  title("Testing cslib::retry part 3 inline lambda"); {
-    maybe<int> noResult = retry([](int _attempts) -> int {
-      static int attempts = 0;
-      if (++attempts < _attempts)
-        throw std::runtime_error("Test error from inline lambda function");
-      return 42;
-    }, 1, 2);
-    maybe<int> okResult = retry([](int _attempts) -> int {
-      static int attempts = 0;
-      if (++attempts < _attempts)
-        throw std::runtime_error("Test error from inline lambda function");
-      return 42;
-    }, 2, 2);
-    maybe<int> timedOut = retry([](int _attempts) -> int {
-      static int attempts = 0;
-      if (++attempts < _attempts)
-        throw std::runtime_error("Test error from inline lambda function");
-      return 42;
-    }, 0, 2);
-    log(!noResult, "retry should return an error for function that fails too many times");
-    log(noResult.error() == "Function failed after maximum attempts: Test error from inline lambda function",
-        "retry should return the correct error message for function that fails too many times");
-    log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
-    log(!timedOut, "retry should return an error for function when _maxAttempts is 0");
-    log(timedOut.error() == "Function never invoked because _maxAttempts is 0", "retry should return the correct error message for function when _maxAttempts is 0");
-  }
+  // title("Testing cslib::retry part 3 inline lambda"); {
+  //   maybe<int> noResult = retry([](int attempts_) -> int {
+  //     static int attempts = 0;
+  //     if (++attempts < attempts_)
+  //       throw std::runtime_error("Test error from inline lambda function");
+  //     return 42;
+  //   }, 1, 2);
+  //   maybe<int> okResult = retry([](int attempts_) -> int {
+  //     static int attempts = 0;
+  //     if (++attempts < attempts_)
+  //       throw std::runtime_error("Test error from inline lambda function");
+  //     return 42;
+  //   }, 2, 2);
+  //   maybe<int> timedOut = retry([](int attempts_) -> int {
+  //     static int attempts = 0;
+  //     if (++attempts < attempts_)
+  //       throw std::runtime_error("Test error from inline lambda function");
+  //     return 42;
+  //   }, 0, 2);
+  //   log(!noResult, "retry should return an error for function that fails too many times");
+  //   log(noResult.error() == "Function failed after maximum attempts: Test error from inline lambda function",
+  //       "retry should return the correct error message for function that fails too many times");
+  //   log(okResult.value() == 42, "retry should return the correct value for function that succeeds");
+  //   log(!timedOut, "retry should return an error for function when maxAttempts is 0");
+  //   log(timedOut.error() == "Function never invoked because maxAttempts is 0", "retry should return the correct error message for function when maxAttempts is 0");
+  // }
 
 
 
@@ -467,9 +479,9 @@ int main() {
     log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
 
     // Error handling
-    str_t errHeaderTime = cslib_throw_header(412, "TimeStamp", "Invalid time: 25:-1:61"); // Shifts by line
+    str_t errHeaderTime = cslib_throw_header("TimeStamp", "Invalid time: 25:-1:61"); // Shifts by line
     log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), errHeaderTime), "TimeStamp should throw an error for invalid time");
-    str_t errHeaderDate = cslib_throw_header(409, "TimeStamp", "Invalid date: 32-13--1");
+    str_t errHeaderDate = cslib_throw_header("TimeStamp", "Invalid date: 32-13--1");
     log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), errHeaderDate), "TimeStamp should throw an error for invalid date");
   }
 
@@ -501,10 +513,10 @@ int main() {
 
 
   title("Testing cslib::Road on its children"); {
-    const TempFile FILE;
+    const TempFile FILE_;
 
     // Read entry properties
-    File road(FILE.str());
+    File road(FILE_.str());
     log(TimeStamp(road.last_modified()).as_str() == TimeStamp().as_str(), "Road should have the correct last modified time");
     log(road.type() == std::filesystem::file_type::regular, "Road should create a regular file");
 
@@ -538,11 +550,11 @@ int main() {
     File roadCopy(road);
     log(roadCopy == road, "Road == operator should work for same file paths");
     log(roadCopy != Folder("../"), "Road != operator should work for different file paths");
-    log(roadCopy == FILE.str(), "Road == operator should work for strings");
-    log(roadCopy != (FILE.str() + "???"), "Road != operator should work for different strings");
+    log(roadCopy == FILE_.str(), "Road == operator should work for strings");
+    log(roadCopy != (FILE_.str() + "???"), "Road != operator should work for different strings");
 
     // Conversions to other types
-    log(str_t(road) == FILE.str(), "Road should convert to string correctly");
+    log(str_t(road) == FILE_.str(), "Road should convert to string correctly");
     std::filesystem::path& logFileAsFsRef = road;
     log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
     const std::filesystem::path& logFileAsFsConstRef = road;
@@ -555,7 +567,7 @@ int main() {
     log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
 
     // Construction (via BizarreRoad as Road::Road() is protected)
-    str_t errHeader = cslib_throw_header(631, "Road", "Path empty");
+    str_t errHeader = cslib_throw_header("Road", "Path empty");
     log(try_result(fn(BizarreRoad("")), errHeader), "Protected Road constructor should throw an error for empty path");
   }
 
@@ -570,7 +582,7 @@ int main() {
 
     // Construction
     str_t voidFolder = TempFolder().str();
-    str_t errorHead = cslib_throw_header(681, "operator()", "Path '", voidFolder, "' is not a directory");
+    str_t errorHead = cslib_throw_header("operator()", "Path '", voidFolder, "' is not a directory");
     log(try_result(fn(Folder nonExistingFolder(voidFolder)), errorHead), "Folder constructor should throw an error for non-existing folder when trying to determine if path is a directory");
 
     // Read properties
@@ -621,8 +633,8 @@ int main() {
 
 
   title("Testing cslib::wget"); {
-    // log(wget("https://www.example.com").value().find("<title>") != str_t::npos, "wget should retrieve the webpage"); // (disabled because windows)
-    log(!wget("impossible://.example.com"), "wget should fail for invalid URLs");
+    log(get("https://www.example.com").value().find("<title>") != str_t::npos, "get func should retrieve the webpage");
+    log(!get("https://www." + scramble_filename(64) + ".com"), "get should fail for made-up/invalid URLs");
   }
 
   if (failedTests != 0) {

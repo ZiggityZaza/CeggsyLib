@@ -3,15 +3,19 @@
 // Including every single header that might ever be needed
 #include <initializer_list>
 #include <filesystem>
+#include <functional>
 #include <expected>
 #include <fstream>
 #include <cstring>
 #include <sstream>
 #include <variant>
+#include <utility>
 #include <random>
 #include <vector>
 #include <chrono>
 #include <thread>
+#include <future>
+#include <mutex>
 #include <array>
 
 
@@ -28,7 +32,6 @@ static_assert(__cplusplus >= 202002L, "Requires C++20 or newer. Current version 
 
 
 
-
 namespace cslib {
   // Jack of all trades (Helper functions and classes)
 
@@ -40,8 +43,12 @@ namespace cslib {
     Differentiate between a char as byte and
     a char as character in a string */
   template <typename T>
+  using sptr = std::shared_ptr<T>;
+  template <typename T>
+  using uptr = std::unique_ptr<T>;
+  template <typename T>
   using cptr = const T *const;
-  template <typename T, typename Or = str_t> // Contains error message
+  template <typename T, typename Or = std::exception_ptr> // Contains error message
   using maybe = std::expected<T, Or>;
   namespace stdfs = std::filesystem;
   #define MACRO inline constexpr auto // Macros for macro definitions
@@ -55,49 +62,47 @@ namespace cslib {
 
 
 
-  str_t to_str(const auto&... _anything) noexcept {
+  str_t to_str(const auto&... anything) noexcept {
     std::ostringstream oss;
-    (oss << ... << _anything);
+    (oss << ... << anything);
     return oss.str();
   }
 
 
 
-  class any_error : public std::runtime_error { public:
-    /*
-      Custom error class for cslib
-      Example:
-        throw cslib::any_error("Something went wrong");
-    */
-    any_error(size_t _lineInCode, strv_t _funcName, const auto&... _msgs) : std::runtime_error([_lineInCode, &_funcName, &_msgs... ] noexcept {
-      /*
-        Create a custom error message with the given messages.
-        Example:
-          throw cslib::any_error(__LINE__, "Aye", L"yo", '!', 123, true);
-      */
-      std::ostringstream oss;
-      oss << "cslib::any_error called in workspace " << stdfs::current_path() << ' ';
-      oss << "on line " << _lineInCode << " in function '" << _funcName << "' because: ";
-      ((oss << _msgs), ...);
-      oss << std::flush;
-      return oss.str();
-    }()) {}
-  };
-  #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __func__, __VA_ARGS__)
-  void exit_because(size_t _lineInCode, const auto&... _msgs) noexcept {
-    /*
-      Exit the program with a custom error message.
-      Example:
-        cslib::exit_because(__LINE__, "Something went wrong but we can't throw");
-    */
-    #if false // No output because iostream is disabled
-      std::cerr << "Program terminated in workspace " << stdfs::current_path() << ' ';
-      std::cerr << "on line " << _lineInCode << " in function '" << __func__ << "' because: ";
-      ((std::cerr << _msgs), ...);
-      std::cerr << "\nGood bye!" << std::flush;
-    #endif
-    std::exit(EXIT_FAILURE);
-  }
+  // Put on ice because encourages bad code
+  // class any_error : public std::runtime_error { public:
+  //   /*
+  //     Custom error class for cslib
+  //     Example:
+  //       throw cslib::any_error("Something went wrong");
+  //   */
+  //   any_error(int lineInCode, strv_t funcName, const auto&... msgs) : std::runtime_error([lineInCode, &funcName, &msgs... ] noexcept {
+  //     std::ostringstream oss;
+  //     oss << "cslib::any_error called in workspace " << stdfs::current_path() << ' ';
+  //     oss << "on line " << lineInCode << " in function '" << funcName << "' because: ";
+  //     ((oss << msgs), ...);
+  //     oss << std::flush;
+  //     return oss.str();
+  //   }()) {}
+  // };
+  // #ifdef ENABLE_CSLIB_TESTING_MODE
+  //   #define cslib_throw_up(...) throw cslib::any_error(0, __func__, __VA_ARGS__)
+  // #else
+  //   #define cslib_throw_up(...) throw cslib::any_error(__LINE__, __func__, _VA_ARGS__)
+  // #endif
+  // void exit_because(size_t lineInCode, std::ostream& outTo, const auto&... msgs) noexcept {
+  //   /*
+  //     Exit the program with a custom error message.
+  //     Example:
+  //       cslib::exit_because(__LINE__, std::cerr, "Something went wrong but we can't throw/continue");
+  //   */
+  //   outTo << "Program terminated in workspace " << stdfs::current_path() << ' ';
+  //   outTo << "on line " << lineInCode << " in function '" << __func__ << "' because: ";
+  //   ((outTo << msgs), ...);
+  //   outTo << "\nGood bye!" << std::flush;
+  //   std::exit(EXIT_FAILURE);
+  // }
 
 
 
@@ -106,13 +111,17 @@ namespace cslib {
   }
 
 
-  std::unexpected<str_t> unexpect(const auto&... _msgs) noexcept {
-    return std::unexpected<str_t>(to_str(_msgs...));
+
+  template <typename Ex = std::exception>
+  std::unexpected<std::exception_ptr> unexpect(auto&&... _because) noexcept {
+    return std::unexpected<std::exception_ptr>{
+      std::make_exception_ptr(Ex(to_str(std::forward<decltype(_because)>(_because)...)))
+    };
   }
 
 
 
-  maybe<str_t, int> sh_call(strv_t _command) noexcept {
+  maybe<str_t, int> sh_call(strv_t command) noexcept {
     /*
       Non-blocking system call that returns the
       output of the command. Returns exit code
@@ -123,7 +132,7 @@ namespace cslib {
     std::array<char, 128> buffer = {};
     str_t result;
     int exitCode = -1;
-    FILE* pipe = popen(_command.data(), "r");
+    FILE* pipe = popen(command.data(), "r");
     if (!pipe)
       return std::unexpected<int>(exitCode);
     while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
@@ -136,7 +145,7 @@ namespace cslib {
 
 
 
-  inline constexpr bool contains(const auto& _lookIn, const auto& _lookFor) {
+  inline constexpr bool contains(const auto& lookIn, const auto& lookFor) {
     /*
       Checks if element `_lookFor` is in `_lookIn` and
       if so, returns a ptr to the first instance of
@@ -145,33 +154,21 @@ namespace cslib {
         No noexcept because we don't know how the
         equal-operator behaves
     */
-    for (const auto& item : _lookIn)
-      if (item == _lookFor)
+    for (const auto& item : lookIn)
+      if (item == lookFor)
         return true;
     return false;
   }
-  inline constexpr bool have_common(const auto& _cont1, const auto& _cont2) {
+  inline constexpr bool have_common(const auto& cont1, const auto& cont2) {
     /*
       Checks if any element in `_cont1` is also in `_cont2`
       Note:
         No noexcept because contains() might throw
     */
-    for (const auto& item : _cont1)
-      if (contains(_cont2, item))
+    for (const auto& item : cont1)
+      if (contains(cont2, item))
         return true;
     return false;
-  }
-
-
-
-  maybe<str_t> get_env(strv_t _var) noexcept {
-    /*
-      Get the value of an environment variable.
-    */
-    cstr envCStr = getenv(_var.data());
-    if (envCStr == NULL)
-      return unexpect("Environment variable '", _var, "' not found");
-    return str_t(envCStr);
   }
 
 
@@ -186,81 +183,70 @@ namespace cslib {
       Note:
         This function should never be reached.
     */
-    T* dummy = nullptr;
     throw std::logic_error("Reached supposedly unreachable code in cslib::fake_return");
-    return *dummy;
+    std::unreachable();
   }
 
 
 
-  template <typename T>
-  requires std::is_integral_v<T>
-  std::vector<T> range(const T& _start, const T& _end) noexcept {
+  std::vector<int> range(int start, int end) noexcept {
     /*
       Simplified range function that takes two integers
       and returns a vector of integers (first inclusive)
     */
-    std::vector<T> result;
-    if (_start > _end) // reverse
-      for (T i = _start; i > _end; --i)
+    std::vector<int> result;
+    if (start > end) // reverse
+      for (int i = start; int > end; --i)
         result.push_back(i);
-    else if (_start < _end) // start to end
-      for (T i = _start; i < _end; ++i)
+    else if (start < end) // start to end
+      for (int i = start; i < end; ++i)
         result.push_back(i);
     else // Nothing
-      return std::vector<T>();
+      return std::vector<int>();
     return result;
   }
-  template <typename T>
-  requires std::is_integral_v<T>
-  std::vector<T> range(const T& end) noexcept {
-    return range(T(0), end);
-  }
-  template <typename T>
-  std::vector<T> range(cptr<T> _begin, size_t _count) noexcept {
-    /*
-      For types with no .end() or specific .begin()
-      such as c-strings
-    */
-    return std::vector<T>(_begin, _begin + _count);
+  std::vector<int> range(int end) noexcept {
+    return range(0, end);
   }
 
 
 
-  template <typename Func, typename... Args>
-  maybe<std::invoke_result_t<Func, Args...>> retry(const Func& _func, size_t _maxAttempts, const Args&... _args) noexcept {
+  template <typename F, typename... Args>
+  requires std::invocable<F, Args...>
+  maybe<std::invoke_result_t<F, Args...>> retry(F&& f, size_t maxAttempts, Args&&... args) noexcept {
     /*
       Retry a function up to `retries` times
+      Note:
+        Catches only stl-based exception types
+      Note 2:
+        returned.error() can be false if maxAttempts
+        is 0
       Example:
         std::function<int()> func = [] {
           // Do something that might fail
         };
         cslib::retry(func, 3, ...);
     */
-    while (_maxAttempts-- > 0) {
+    while (maxAttempts-- > 0) {
       try {
-        if constexpr (std::is_void_v<std::invoke_result_t<Func, Args...>>) {
-          _func(_args...);
+        if constexpr (std::is_void_v<std::invoke_result_t<F, Args...>>) {
+          std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
           return {};
         }
         else
-          return _func(_args...);
-      }
-      catch (const std::exception& e) {
-        if (!_maxAttempts)
-          return unexpect("Function failed after maximum attempts: ", e.what());
+          return std::invoke(std::forward<F>(f), std::forward<Args>(args)...);
       }
       catch (...) {
-        if (!_maxAttempts)
-          return unexpect("Function failed after maximum attempts: unknown exception");
+        if (maxAttempts == 0)
+          return std::unexpected(std::current_exception());
       }
     }
-    return unexpect("Function never invoked because _maxAttempts is 0");
+    return maybe<std::invoke_result_t<F, Args...>, std::exception_ptr>();
   }
 
 
 
-  maybe<std::vector<strv_t>> parse_cli_args(int _argc, cstr _args[]) {
+  maybe<std::vector<strv_t>> parse_cli_args(int argc, cstr args[]) noexcept {
     /*
       Parse command line arguments and return
       them as a vector of strings.
@@ -269,21 +255,24 @@ namespace cslib {
         align even when nullptr or vector won't
         recognize values
     */
-    if (_args == nullptr or _argc <= 0)
-      return unexpect("No command line arguments provided");
-    return std::vector<strv_t>(_args, _args + _argc); // Includes binary name
+    if (args == nullptr or argc <= 0)
+      return unexpect<std::runtime_error>("No command line arguments provided");
+    return std::vector<strv_t>(args, args + argc); // Includes binary name
   }
 
 
 
-  str_t stringify_container(const auto& _vec) {
+  str_t stringify_container(const auto& vec) {
     /*
       Convert a vector to a string representation.
+      Note:
+        No noexcept because we don't know if something
+        internally would throw
       Example:
         cslib::stringify_container({1, 2, 3}); // "{1, 2, 3}"
     */
     str_t result = "{";
-    for (const auto& item : _vec)
+    for (const auto& item : vec)
       result += to_str(item) + ", ";
     if (result.length() > 1) { // If there are items
       result.pop_back(); // Remove the last comma
@@ -296,56 +285,54 @@ namespace cslib {
 
 
   MACRO TRIM_WITH = "...";
-  inline constexpr maybe<str_t> shorten_end(strv_t _strsv, size_t _maxLength) noexcept {
+  inline constexpr maybe<str_t> shorten_end(strv_t strsv, size_t maxLength) noexcept {
     /*
       Example:
         cslib::shorten_end(L"cslib.h++", 6); // "csl..."
     */
-    if (_maxLength < std::strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
-    if (_strsv.length() <= _maxLength)
-      return str_t(_strsv);
-    return str_t(_strsv.substr(0, _maxLength - std::strlen(TRIM_WITH))) + TRIM_WITH;
+    if (maxLength < std::strlen(TRIM_WITH))
+      return unexpect<std::invalid_argument>("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+    if (strsv.length() <= maxLength)
+      return str_t(strsv);
+    return str_t(strsv.substr(0, maxLength - std::strlen(TRIM_WITH))) + TRIM_WITH;
   }
 
-  inline constexpr maybe<str_t> shorten_begin(strv_t _strsv, size_t _maxLength) noexcept {
+  inline constexpr maybe<str_t> shorten_begin(strv_t strsv, size_t maxLength) noexcept {
     /*
       Example:
         cslib::shorten_begin(L"cslib.h++", 6); // "...h++"
     */
-    if (_maxLength < std::strlen(TRIM_WITH))
-      return unexpect("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
-    if (_strsv.length() <= _maxLength)
-      return str_t(_strsv);
-    return str_t(TRIM_WITH) + str_t(_strsv.substr(_strsv.length() - (_maxLength - std::strlen(TRIM_WITH))));
+    if (maxLength < std::strlen(TRIM_WITH))
+      return unexpect<std::invalid_argument>("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+    if (strsv.length() <= maxLength)
+      return str_t(strsv);
+    return str_t(TRIM_WITH) + str_t(strsv.substr(strsv.length() - (maxLength - std::strlen(TRIM_WITH))));
   }
 
 
 
-  std::vector<str_t> separate(strv_t _strsv, strv_t _delimiter) noexcept {
+  std::vector<str_t> separate(strv_t strsv, strv_t delimiter) noexcept {
     /*
       Example:
         cslib::separate("John Money", " ") // {"John", "Money"}
     */
     std::vector<str_t> result;
     size_t pos = 0;
-    while ((pos = _strsv.find(_delimiter)) != strv_t::npos) {
-      result.push_back(str_t(_strsv.substr(0, pos)));
-      _strsv.remove_prefix(pos + _delimiter.length());
+    while ((pos = strsv.find(delimiter)) != strv_t::npos) {
+      result.push_back(str_t(strsv.substr(0, pos)));
+      strsv.remove_prefix(pos + delimiter.length());
     }
-    if (!_strsv.empty())
-      result.push_back(_strsv.data()); // Add the last part
+    if (!strsv.empty())
+      result.push_back(strsv.data()); // Add the last part
     return result;
   }
-  std::vector<str_t> separate(strv_t _strsv, char _delimiter) noexcept {
-    return separate(_strsv, to_str(_delimiter));
+  std::vector<str_t> separate(strv_t strsv, char delimiter) noexcept {
+    return separate(strsv, to_str(delimiter));
   }
 
 
 
-  template <typename T>
-  requires std::is_integral_v<T>
-  T roll_dice(T _min, T _max) noexcept {
+  int roll_dice(int min, int max) noexcept {
     /*
       Minimum and maximum value and returns a random
       number between them (inclusive).
@@ -353,15 +340,15 @@ namespace cslib {
         cslib::roll_dice(1, 6); // Returns a random number
         between 1 and 6 (inclusive)
     */
-    if (_min > _max) std::swap(_min, _max);
+    if (min > max) std::swap(min, max);
     static std::mt19937 generator(std::random_device{}());
-    std::uniform_int_distribution<T> distribution(_min, _max);
+    std::uniform_int_distribution<int> distribution(min, max);
     return distribution(generator);
   }
 
 
 
-  maybe<str_t> read_data(std::istream& _inStream) noexcept {
+  maybe<str_t> read_data(std::istream& inStream) noexcept {
     /*
       Read all data from the given istream and return it as a string.
       After reading, the stream is considered empty.
@@ -370,20 +357,36 @@ namespace cslib {
         Handling encoding, other states, flags or similar are managed
         by the caller. This function only cleans up its own changes.
     */
-    if (!_inStream or !_inStream.good())
-      return unexpect("std::istream is not good or in a bad state");
-    std::streampos previousPos = _inStream.tellg();
-    str_t result{std::istreambuf_iterator<char>(_inStream), std::istreambuf_iterator<char>()};
-    _inStream.seekg(previousPos);
-    return result;
+    std::ios::iostate oldState = inStream.exceptions();
+    inStream.exceptions(std::ios_base::failbit | std::ios::badbit); // Enable exceptions for fail and bad bits
+    try {
+      std::streampos previousPos = inStream.tellg();
+      str_t result{std::istreambuf_iterator<char>(inStream), std::istreambuf_iterator<char>()};
+      if (previousPos != -1)
+        inStream.seekg(previousPos);
+      inStream.exceptions(oldState);
+      return result;
+    }
+    catch (...) {
+      inStream.exceptions(oldState);
+      return std::unexpected(std::current_exception());
+    }
+    std::unreachable();
   }
-  maybe<void> do_io(std::istream& _inStream, std::ostream& _outStream) noexcept {
-    maybe<str_t> data = read_data(_inStream);
+  maybe<void> do_io(std::istream& inStream, std::ostream& outStream) noexcept {
+    maybe<str_t> data = read_data(inStream);
     if (!data)
-      return unexpect("Failed to read data: ", data.error());
-    _outStream << *data << std::flush;
-    if (!_outStream)
-      return unexpect("Failed to write data to std::ostream");
+      return std::unexpected(data.error());
+    std::ios::iostate oldState = inStream.exceptions();
+    outStream.exceptions(std::ios_base::failbit | std::ios::badbit);
+    try {
+      outStream << *data << std::flush;
+      inStream.exceptions(oldState);
+    }
+    catch (...) {
+      outStream.exceptions(oldState);
+      return std::unexpected(std::current_exception());
+    }
     return {};
   }
 
@@ -398,27 +401,27 @@ namespace cslib {
 
     // Contructors and error handling
     TimeStamp() noexcept {timePoint = std::chrono::system_clock::now();}
-    TimeStamp(std::chrono::system_clock::time_point _tp) : timePoint(_tp) {}
-    TimeStamp(int _hour, int _min, int _sec, int _day, int _month, int _year) {
+    TimeStamp(std::chrono::system_clock::time_point tp) : timePoint(tp) {}
+    TimeStamp(int hour, int min, int sec, int day, int month, int year) {
       /*
         Create a time stamp from the given date and time
         after making sure that the date is valid.
       */
       // Determine date
       std::chrono::year_month_day ymd{
-        std::chrono::year(_year),
-        std::chrono::month(_month),
-        std::chrono::day(_day)
+        std::chrono::year(year),
+        std::chrono::month(month),
+        std::chrono::day(day)
       };
       if (!ymd.ok())
-        cslib_throw_up("Invalid date: ", _day, "-", _month, "-", _year);
+        throw std::logic_error(to_str("Invalid date: ", day, "-", month, "-", year));
       // Determine time
-      if ((_hour >= 24 or _hour < 0) or (_min >= 60 or _min < 0) or (_sec >= 60 or _sec < 0))
-        cslib_throw_up("Invalid time: ", _hour, ":", _min, ":", _sec);
+      if ((hour >= 24 or hour < 0) or (min >= 60 or min < 0) or (sec >= 60 or sec < 0))
+        throw std::logic_error(to_str("Invalid time: ", hour, ":", min, ":", sec));
       std::chrono::hh_mm_ss hms{
-        std::chrono::hours(_hour) +
-        std::chrono::minutes(_min) +
-        std::chrono::seconds(_sec)
+        std::chrono::hours(hour) +
+        std::chrono::minutes(min) +
+        std::chrono::seconds(sec)
       };
       // Combine date and time into a time point
       timePoint = std::chrono::system_clock::time_point(
@@ -493,23 +496,23 @@ namespace cslib {
     std::ostream& outTo;
     str_t prefix;
     Out() = default;
-    Out(std::ostream& _outTo) : outTo(_outTo) {
+    Out(std::ostream& outTo_) : outTo(outTo_) {
       prefix = "";
     }
-    Out(std::ostream& _outTo, strv_t _prefsv = "", strv_t _color = "") : outTo(_outTo) {
+    Out(std::ostream& outTo_, strv_t prefsv = "", strv_t color = "") : outTo(outTo_) {
       std::ostringstream prefixStream;
-      prefixStream << _color << _prefsv;
-      if (!_prefsv.empty())
+      prefixStream << color << prefsv;
+      if (!prefsv.empty())
         prefixStream << " ";
-      if (!_color.empty())
+      if (!color.empty())
         prefixStream << Reset;
       prefix = prefixStream.str();
     }
-    std::ostream& operator<<(const auto& _msg) const noexcept {
-      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << _msg;
+    std::ostream& operator<<(const auto& msg) const noexcept {
+      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << msg;
     }
-    std::ostream& operator<<(auto&& _msg) const noexcept {
-      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << std::forward<decltype(_msg)>(_msg);
+    std::ostream& operator<<(auto&& msg) const noexcept {
+      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << std::forward<decltype(msg)>(msg);
     }
   };
 
@@ -543,14 +546,17 @@ namespace cslib {
 
 
 
-  stdfs::path where_is_path_really(stdfs::path _path) {
+  maybe<stdfs::path> where_is_path_really(stdfs::path path) noexcept {
     /*
       Returns the actual path of the entry on disk
       but won't resolve symlinks.
     */
-    if (stdfs::exists(_path) and stdfs::is_symlink(_path))
-      return stdfs::read_symlink(_path);
-    return stdfs::canonical(_path);
+    try {
+      if (stdfs::exists(path) and stdfs::is_symlink(path))
+        return stdfs::read_symlink(path);
+      return stdfs::canonical(path);
+    }
+    catch (...) {}
   }
   MACRO PATH_SEPARATOR = IS_WINDOWS ? '\\' : '/';
   class File;
@@ -588,31 +594,31 @@ namespace cslib {
       */
       return separate(this->str(), to_str(PATH_SEPARATOR)).size() - 1;
     }
-    maybe<Folder> operator[](size_t _index) const noexcept;
+    maybe<Folder> operator[](size_t index) const noexcept;
 
 
-    [[nodiscard]] maybe<void> rename_self_to(strv_t _newName) noexcept {
+    [[nodiscard]] maybe<void> rename_self_to(strv_t newName) noexcept {
       /*
         Rename the entry to a new name.
         Note:
           No path separators allowed as parent directories
           are not created
       */
-      if (_newName.find(PATH_SEPARATOR) != str_t::npos)
-        return unexpect("Filename can't be moved with this function (previous: '", str(), "', new: '", _newName, "')");
-      const stdfs::path newPath = isAt.parent_path() / _newName;
+      if (newName.find(PATH_SEPARATOR) != str_t::npos)
+        return unexpect<std::invalid_argument>("Filename can't be moved with this function (previous: '", str(), "', new: '", newName, "')");
+      const stdfs::path newPath = isAt.parent_path() / newName;
       if (stdfs::exists(newPath))
-        return unexpect("Path ", newPath, " already exists");
+        return unexpect<std::invalid_argument>("Path ", newPath, " already exists");
       stdfs::rename(isAt, newPath);
       isAt = newPath; // Update the path
       return {};
     }
 
     
-    bool operator==(Road _other) const noexcept { return this->isAt == _other.isAt; }
-    bool operator!=(Road _other) const noexcept { return !(*this == _other); }
-    bool operator==(stdfs::path _other) const noexcept { return this->isAt == _other; }
-    bool operator!=(stdfs::path _other) const noexcept { return !(*this == _other); }
+    bool operator==(Road other) const noexcept { return this->isAt == other.isAt; }
+    bool operator!=(Road other) const noexcept { return !(*this == other); }
+    bool operator==(stdfs::path other) const noexcept { return this->isAt == other; }
+    bool operator!=(stdfs::path other) const noexcept { return !(*this == other); }
     operator bool() const noexcept { return stdfs::exists(isAt); } // Check if path exists
     // Implicitly converts wide (c-)strings to stdfs::path 
 
@@ -624,23 +630,23 @@ namespace cslib {
     operator const stdfs::path&() const noexcept { return this->isAt; }
     operator stdfs::path*() noexcept { return &this->isAt; }
     operator stdfs::path*() const noexcept { return const_cast<stdfs::path*>(&this->isAt); } // casted immutable
-    friend std::ostream& operator<<(std::ostream& _out, const Road& _entry) noexcept {
-      return _out << '\'' << _entry.str() << '\'';
+    friend std::ostream& operator<<(std::ostream& out, const Road& entry) noexcept {
+      return out << '\'' << entry.str() << '\'';
     }
 
 
     // Abstract class shouldn't be instantiated
     protected: Road() = default;
-    protected: Road(stdfs::path _where) {
+    protected: Road(stdfs::path where) {
       /*
         Resolves the actual path for it's kids
       */
-      if (_where.empty())
-        cslib_throw_up("Path empty");
-      isAt = where_is_path_really(_where);
+      if (where.empty())
+        throw std::invalid_argument("Path empty");
+      isAt = where_is_path_really(where);
     }
 
-    static Road create_self(stdfs::path _where) {
+    static maybe<Road, std::exception_ptr> create_self(stdfs::path where) {
       /*
         Creates a new instance of Road without
         allowing global access of constructor
@@ -648,7 +654,9 @@ namespace cslib {
         should be taken to ensure proper
         initialization
       */
-      return Road(_where);
+      Road r = (where);
+      if (!r)
+        return 
     }
   };
 
@@ -661,12 +669,12 @@ namespace cslib {
       or pipes.
     */
     BizarreRoad() = default;
-    BizarreRoad(stdfs::path _where) : Road(_where) {
+    BizarreRoad(stdfs::path where) : Road(where) {
       if (!stdfs::exists(isAt))
-        cslib_throw_up("Path '", isAt, "' does not exist");
+        throw std::invalid_argument("Path '" + isAt.string() + "' does not exist");
       if (this->type() == stdfs::file_type::regular or
           this->type() == stdfs::file_type::directory)
-        cslib_throw_up("Path '", isAt, "' is not a bizarre file");
+        throw std::runtime_error("Path '" + isAt.string() + "' is not a bizarre file");
     }
   };
 
@@ -681,12 +689,12 @@ namespace cslib {
         // content = "Around 50 years ago, a group of people..."
     */
     File() = default;
-    File(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {
-      if (_createIfNotExists and !stdfs::exists(_where))
-        std::ofstream(_where) << "";
-      if (!stdfs::is_regular_file(_where))
-        cslib_throw_up("Path ", _where, " is not a regular file");
-      return _where;
+    File(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
+      if (createIfNotExists and !stdfs::exists(where))
+        std::ofstream(where) << "";
+      if (!stdfs::is_regular_file(where))
+        throw std::invalid_argument("Path ", where, " is not a regular file");
+      return where;
     }()) {}
 
 
@@ -708,10 +716,10 @@ namespace cslib {
       if (!file) return unexpect(file.error());
       return str_t((std::istreambuf_iterator<char>(*file)), std::istreambuf_iterator<char>());
     }
-    maybe<void> edit_text(const auto&... _newTexts) const noexcept {
+    maybe<void> edit_text(const auto&... newTexts) const noexcept {
       maybe<std::ofstream> file(reach_out(std::ios::out | std::ios::trunc));
       if (!file) return unexpect(file.error());
-      ((*file << _newTexts), ...);
+      ((*file << newTexts), ...);
       return {};
     }
 
@@ -728,10 +736,10 @@ namespace cslib {
         std::istreambuf_iterator<byte_t>()
       };
     }
-    [[nodiscard]] maybe<void> edit_binary(const auto *const _newData, size_t _len) const {
+    [[nodiscard]] maybe<void> edit_binary(const auto *const newData, size_t len) const {
       maybe<std::ofstream> file(reach_out(std::ios::binary | std::ios::trunc));
       if (!file) return unexpect(file.error());
-      file->write(reinterpret_cast<const char *const>(_newData), _len);
+      file->write(reinterpret_cast<const char *const>(newData), len);
       return {};
     }
 
@@ -740,10 +748,10 @@ namespace cslib {
     size_t bytes() const noexcept {return stdfs::file_size(isAt);}
 
 
-    [[nodiscard]] maybe<void> move_self_into(Folder _newLocation) noexcept;
+    [[nodiscard]] maybe<void> move_self_into(Folder newLocation) noexcept;
 
 
-    [[nodiscard]] maybe<File> copy_self_into(Folder _newLocation, stdfs::copy_options _options = stdfs::copy_options::none) const noexcept;
+    [[nodiscard]] maybe<File> copy_self_into(Folder newLocation, stdfs::copy_options options = stdfs::copy_options::none) const noexcept;
   };
 
 
@@ -757,17 +765,17 @@ namespace cslib {
           std::cout << "Folder contains the file\n";
     */
     Folder() = default;
-    Folder(stdfs::path _where, bool _createIfNotExists = false) : Road([_where, _createIfNotExists] {
-      if (_createIfNotExists and !stdfs::exists(_where))
-        stdfs::create_directory(_where);
-      if (!stdfs::is_directory(_where))
-        cslib_throw_up("Path '", _where.string(), "' is not a directory");
-      return _where;
+    Folder(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
+      if (createIfNotExists and !stdfs::exists(where))
+        stdfs::create_directory(where);
+      if (!stdfs::is_directory(where))
+        throw std::invalid_argument("Path '", where.string(), "' is not a directory");
+      return where;
     }()) {}
 
 
-    stdfs::path operator/(stdfs::path _other) const noexcept {
-      return this->isAt / _other;
+    stdfs::path operator/(stdfs::path other) const noexcept {
+      return this->isAt / other;
     }
 
 
@@ -801,7 +809,7 @@ namespace cslib {
     }
 
 
-    maybe<road_t> find(strv_t _lookFor) const noexcept {
+    maybe<road_t> find(strv_t lookFor) const noexcept {
       /*
         Check if the folder contains a file or folder with
         the given relative path. If it does, return the
@@ -812,34 +820,26 @@ namespace cslib {
           Using [] operator instead of .at() to avoid exceptions
           and to allow checking for existence
       */
-      if (_lookFor.empty())
+      if (lookFor.empty())
         return unexpect("Path is empty");
       if constexpr (IS_WINDOWS) {
-        if (_lookFor[2] == PATH_SEPARATOR and _lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
+        if (lookFor[2] == PATH_SEPARATOR and lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
           return unexpect("Path starts with a drive letter and a path separator, thus is absolute");
       }
       else {
-        if (_lookFor[0] == PATH_SEPARATOR)
+        if (lookFor[0] == PATH_SEPARATOR)
           return unexpect("Path starts with a path separator, thus is absolute");
       }
-      if (stdfs::exists(isAt / _lookFor))
-        switch (stdfs::status(isAt / _lookFor).type()) {
-          case stdfs::file_type::regular:
-            return File(isAt / _lookFor);
-          case stdfs::file_type::directory:
-            return Folder(isAt / _lookFor);
-          default:
-            return BizarreRoad(isAt / _lookFor); // Other types (symlinks, sockets, etc.)
+      if (stdfs::exists(isAt / lookFor))
+        switch (stdfs::status(isAt / lookFor).type()) {
+          case stdfs::file_type::regular: return File(isAt / lookFor);
+          case stdfs::file_type::directory: return Folder(isAt / lookFor);
+          default: return BizarreRoad(isAt / lookFor); // Other types (symlinks, sockets, etc.)
         }
-      return unexpect("Couldn't find '", _lookFor, "' in here '", str(), "'");
+      return unexpect("Couldn't find '", lookFor, "' in here '", str(), "'");
     }
-    maybe<road_t> find(Road _path) const noexcept {
-      return find(_path.name());
-    }
-
-
-    maybe<Road> untyped_find(strv_t _path) const noexcept {
-      maybe<road_t> road = find(_path);
+    maybe<Road> untyped_find(strv_t path) const noexcept {
+      maybe<road_t> road = find(path);
       if (!road)
         return unexpect(road.error());
       // Since std::visit wont work
@@ -851,39 +851,55 @@ namespace cslib {
         return Road::create_self(std::get<BizarreRoad>(*road).isAt);
       return fake_return<maybe<Road>>();
     }
-    maybe<Road> untyped_find(Road _path) const noexcept {
-      return untyped_find(_path.name());
+
+    maybe<Road> untyped_find(Road path) const noexcept {
+      maybe<Road> result = untyped_find(path.name());
+      if (!result)
+        return unexpect(result.error());
+      if (path.type() != result.value().type())
+        return unexpect("'", path.name(), "' exists in '", this->str(), "' but they are of different types");
+      return result;
+    }
+    maybe<road_t> find(Road path) const noexcept {
+      maybe<Road> result = untyped_find(path);
+      if (!result)
+        return unexpect(result.error());
+      switch (result.value().type()) {
+        case stdfs::file_type::regular: return File(*result);
+        case stdfs::file_type::directory: return Folder(*result);
+        default: return BizarreRoad(*result);
+      }
     }
 
 
-    [[nodiscard]] maybe<void> move_self_into(Folder _parentDict) noexcept {
+    [[nodiscard]] maybe<void> move_self_into(Folder parentDict) noexcept {
       /*
         Important note:
           Upon moving, subfolder and file objects will still
           point to the old location.
       */
-      if (stdfs::exists(_parentDict / name()))
-        return unexpect("Path ", isAt, " already exists in folder ", _parentDict);
-      stdfs::rename(isAt, _parentDict / name());
-      isAt = _parentDict / name();
+      if (stdfs::exists(parentDict / name()))
+        return unexpect("Path ", isAt, " already exists in folder ", parentDict);
+      stdfs::rename(isAt, parentDict / name());
+      isAt = parentDict / name();
       return {};
     }
 
 
-    [[nodiscard]] maybe<Folder> copy_self_into(Folder _parentDict) const noexcept {
-      if (stdfs::exists(_parentDict / name()))
-        return unexpect("Path '", str(), "' already exists in folder '", _parentDict.str(), "'");
-      stdfs::copy(isAt, _parentDict / name(), stdfs::copy_options::recursive);
-      return Folder(_parentDict / name());
+    [[nodiscard]] maybe<Folder> copy_self_into(Folder parentDict) const noexcept {
+      if (stdfs::exists(parentDict / name()))
+        return unexpect("Path '", str(), "' already exists in folder '", parentDict.str(), "'");
+      stdfs::copy(isAt, parentDict / name(), stdfs::copy_options::recursive);
+      return Folder(parentDict / name());
     }
 
 
-    [[nodiscard]] maybe<void> copy_content_into(Folder _otherDir, stdfs::copy_options _options) const noexcept {
+    [[nodiscard]] maybe<void> copy_content_into(Folder otherDir, stdfs::copy_options options) const noexcept {
       /*
         Copying self with custom options for extra
         control
       */
-      stdfs::copy(isAt, _otherDir, _options);
+      stdfs::copy(isAt, otherDir, options);
       return {};
     }
   };
@@ -891,7 +907,7 @@ namespace cslib {
 
 
   // Implementations for Road stuff due to constructors not being defined yet
-  maybe<Folder> Road::operator[](size_t _index) const noexcept {
+  maybe<Folder> Road::operator[](size_t index) const noexcept {
     /*
       Find parent paths by layer
       Example:
@@ -900,50 +916,53 @@ namespace cslib {
         Folder parent = f[f.depth()-1];
     */
     stdfs::path parent = isAt;
-    if (_index >= depth())
-      return unexpect("Trying to reach (", _index, ") fruther than path '", str(), "' would allow (", depth(), ")");
-    for ([[maybe_unused]] size_t _ : range(depth() - _index))
+    if (index >= depth())
+      return unexpect("Trying to reach (", index, ") fruther than path '", str(), "' would allow (", depth(), ")");
+    for ([[maybe_unused]] size_t _ : range(depth() - index))
       parent = parent.parent_path();
     return Folder(parent);
   }
-  [[nodiscard]] maybe<void> File::move_self_into(Folder _newLocation) noexcept {
-    if (stdfs::exists(_newLocation / name()))
-      return unexpect("Path ", name(), " already exists in folder ", _newLocation.str());
-    stdfs::rename(isAt, _newLocation / name());
-    isAt = _newLocation / name(); // Update the path
+  [[nodiscard]] maybe<void> File::move_self_into(Folder newLocation) noexcept {
+    if (stdfs::exists(newLocation / name()))
+      return unexpect("Path ", name(), " already exists in folder ", newLocation.str());
+    stdfs::rename(isAt, newLocation / name());
+    isAt = newLocation / name(); // Update the path
     return {};
   }
-  [[nodiscard]] maybe<File> File::copy_self_into(Folder _newLocation, stdfs::copy_options _options) const noexcept {
+  [[nodiscard]] maybe<File> File::copy_self_into(Folder newLocation, stdfs::copy_options options) const noexcept {
     /*
       Copying self with custom options for extra
       control
     */
-    stdfs::copy_file(isAt, _newLocation / name(), _options);
-    if (!stdfs::exists(_newLocation / name()))
-      return unexpect("Failed to copy file to '", (_newLocation / name()).string(), "'");
-    return File(_newLocation / name());
+    stdfs::copy_file(isAt, newLocation / name(), options);
+    if (!stdfs::exists(newLocation / name()))
+      return unexpect("Failed to copy file to '", (newLocation / name()).string(), "'");
+    return File(newLocation / name());
   }
 
 
 
-  MACRO SCRAMBLE_LEN = 5; // 59^n possible combinations
+  MACRO SCRAMBLE_LEN = 5ULL; // 59^n possible combinations
   static_assert(SCRAMBLE_LEN > 0, "SCRAMBLE_LEN must be greater than 0 so that temporary filenames can be generated");
-  str_t scramble_filename() noexcept {
+  str_t scramble_filename(size_t len = SCRAMBLE_LEN) noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
       characters. The filename consists of uppercase and lowercase
-      letters and digits.
+      letters and digits. If `len` is specified, make sure it's
+      above 0
       Note:
         If all possible names are exhausted, the calling code
         will be stuck in an infinite loop.
+      Example:
+        A possible output could be "aB3cX..."
     */
     std::ostringstream randomName;
-    for ([[maybe_unused]] auto _ : range(SCRAMBLE_LEN))
+    for ([[maybe_unused]] auto _ : range(len))
       switch (roll_dice(0, 2)) {
         case 0: randomName << roll_dice('A', 'Z'); break; // Uppercase letter
         case 1: randomName << roll_dice('a', 'z'); break; // Lowercase letter
         case 2: randomName << roll_dice('0', '9'); break; // Digit
-        default: randomName << '?'; // Shouldn't happen tho
+        default: randomName << fake_return<decltype(_)>();
       }
     return randomName.str();
   }
@@ -1002,16 +1021,19 @@ namespace cslib {
 
 
 
-  std::expected<str_t, int> wget(strv_t _url) noexcept {
+  std::expected<str_t, int> get(str_t url, str_t params = "-fsSL") noexcept {
     /*
       Download the content of the given URL using wget
       and return it as a string. If the download fails,
       an error code will be returned.
       Note:
-        This function requires wget to be installed on the system.
-        It will throw an error if wget is not found or fails to execute.
+        This function requires curl to be installed
+      Important note:
+        Just like the sh_call function itself, this
+        function is VERY injection prone. No direct
+        user input recommended
     */
-    return sh_call("wget -q -O - " + str_t(_url.data())); // -q = quiet mode, -O - = output to stdout
+    return sh_call("curl " + params + " " + url); 
   }
 
 
@@ -1039,41 +1061,41 @@ namespace cslib {
 
   /*
     'I know what I am doing' functions to avoid repetitive
-    error handling code
+    error handling code with safety-nets
   */
   template <typename T, typename... VTs>
-  inline constexpr const maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
-    if (!std::holds_alternative<T>(_variant))
-      return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
-    return std::get<T>(_variant);
+  inline constexpr const T get(const std::variant<VTs...>& variant) {
+    if (!std::holds_alternative<T>(variant))
+      throw std::invalid_argument("Expected variant type (id) ", typeid(T).name(), " but got (index) ", variant.index());
+    return std::get<T>(variant);
   }
   template <typename T, typename... VTs>
-  inline constexpr maybe<T> get(const std::variant<VTs...>& _variant) noexcept {
-    if (!std::holds_alternative<T>(_variant))
-      return unexpect("Expected variant type ", typeid(T).name(), " but got ", _variant.index());
-    return std::get<T>(_variant);
+  inline constexpr T get(const std::variant<VTs...>& variant) {
+    if (!std::holds_alternative<T>(variant))
+      throw std::invalid_argument("Expected variant type (id) ", typeid(T).name(), " but got (index )", variant.index());
+    return std::get<T>(variant);
   }
   template <typename T, typename... VTs>
-  inline constexpr bool holds(const std::variant<VTs...>& _variant) noexcept {
-    return std::holds_alternative<T>(_variant);
+  inline constexpr bool holds(const std::variant<VTs...>& variant) noexcept {
+    return std::holds_alternative<T>(variant);
   }
   template <typename T, typename _>
-  inline constexpr T get(const std::expected<T, _>& _expected) noexcept {
+  inline constexpr T get(const std::expected<T, _>& expected) noexcept {
     /*
       If you are certain that the expected contains
       a value, use this to save code and have the
       safety of throwing an error if it doesn't.
     */
-    if (!_expected)
-      cslib_throw_up("Expected value but got error: ", _expected.error());
-    return _expected.value();
+    if (!expected)
+      throw std::invalid_argument("Expected value but got error");
+    return expected.value();
   }
 
 
 
   template <typename To = int, typename From>
   requires (std::is_arithmetic_v<From> and std::is_arithmetic_v<To>)
-  inline constexpr maybe<To> to_number(const From& _number) noexcept {
+  inline constexpr maybe<To> to_number(const From& number) noexcept {
     /*
       Gives an additional layer of safety when
       converting numbers with different sizes.
@@ -1082,8 +1104,16 @@ namespace cslib {
       expects an int.
     */
     static_assert(!std::is_same_v<From, To>, "Conversion between same types is not necessary");
-    if (_number < lowest_value_of<To>() or _number > highest_value_of<To>())
-      return unexpect("Number ", _number, " is higher/lower than ", lowest_value_of<To>(), "/", highest_value_of<To>());
-    return To(_number);
+    if (number < lowest_value_of<To>() or number > highest_value_of<To>())
+      return unexpect("Number ", number, " is higher/lower than ", lowest_value_of<To>(), "/", highest_value_of<To>());
+    return To(number);
+  }
+
+
+
+  template <typename F, typename... Args>
+  requires (std::is_invocable_v<F, Args...>)
+  [[nodiscard]] std::future<std::invoke_result_t<F, Args...>> do_in_parallel(F&& f, Args&&... args) {
+    return std::async(std::launch::async, std::forward<F>(f), std::forward<Args>(args)...);
   }
 } // namespace cslib

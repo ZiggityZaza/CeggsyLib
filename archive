@@ -1,0 +1,245 @@
+
+
+
+
+
+ 
+
+
+
+  // title("Testing cslib::separate"); {
+  //   std::vector<str_t> result = separate("John Money", ' '); // Also tests for char as delimiter
+  //   log(result.size() == 2, "separate should return 2 parts");
+  //   log(result.at(0) == "John", "First part should be 'John'");
+  //   log(result.at(1) == "Money", "Second part should be 'Money'");
+  //   result = separate("John  Money", " ");
+  //   log(result.size() == 3, "separate should return 3 parts for double spaces");
+  //   log(result.at(0) == "John", "First part should be 'John'");
+  //   log(result.at(1) == "", "Second part should be empty for double space");
+  //   log(result.at(2) == "Money", "Third part should be 'Money'");
+  //   log(separate("", ",").empty(), "separate should return empty vector for empty string");
+  //   log(separate("John Money", "X").at(0) == "John Money", "separate with non-existing delimiter should return the whole string in a vector");
+  // }
+
+
+  // title("Testing cslib::roll_dice"); {
+  //   int min = -3, max = 3;
+  //   bool correctRange = true;
+  //   for ([[maybe_unused]] auto _ : range(100'000)) {
+  //     int result = roll_dice(min, max);
+  //     if (!(result >= min and result <= max))
+  //       correctRange = false;
+  //   }
+  //   log(correctRange, "roll_dice should return a value between ", min, " and ", max);
+  //   log(roll_dice(1, 1) == 1, "roll_dice with same min and max should return that value");
+  // }
+
+
+
+  // title("Testing cslib::read_data and cslib::do_io"); {
+  //   const TempFile TEST_FILE;
+  //   TEST_FILE.edit_text("John\nMoney\n").value(); // Ignore no-discard warning
+  //   std::ifstream inFile(TEST_FILE);
+  //   log(read_data(inFile) == "John\nMoney\n", "read_wdata file reading should return file content");
+  //   log(read_data(inFile) == "John\nMoney\n", "read_wdata should still same content after reading again");
+  //   inFile.close();
+  //   log(read_data(inFile) == "", "read_wdata should return empty after closing stream");
+  //   std::ifstream inFile2(TEST_FILE);
+  //   log(read_data(inFile2) == "John\nMoney\n", "read_wdata should return expected content after reopening file on different stream");
+
+  //   // do_io by itself
+  //   std::ostringstream woss;
+  //   do_io(inFile2, woss);
+  //   log(woss.str() == "John\nMoney\n", "do_io should read from input stream and write to output stream");
+  // }
+
+
+
+  // title("Testing cslib::TimeStamp"); {
+  //   TimeStamp ts1;
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(500)); // Must be away from 1 second to avoid test issues below
+  //   auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(TimeStamp().timePoint - ts1.timePoint).count();
+  //   log(elapsed >= 499 and elapsed <= 510, "TimeStamp should be within 510ms of current time");
+
+  //   // Correctness of formatting
+  //   std::time_t now = std::chrono::system_clock::to_time_t(ts1.timePoint);
+  //   std::tm *tm = std::localtime(&now);
+  //   log(((std::ostringstream() << std::put_time(tm, "%H:%M:%S %d-%m-%Y")).str() == TimeStamp().as_str()), "TimeStamp should format time correctly");
+
+  //   // Making sure TimeStamp returns correct values
+  //   TimeStamp rightNow;
+  //   log(rightNow.year() == unsigned(tm->tm_year + 1900), "TimeStamp should return correct year");
+  //   log(rightNow.month() == unsigned(tm->tm_mon + 1), "TimeStamp should return correct month");
+  //   log(rightNow.day() == unsigned(tm->tm_mday), "TimeStamp should return correct day");
+  //   log(rightNow.hour() == unsigned(tm->tm_hour), "TimeStamp should return correct hour");
+  //   log(rightNow.minute() == unsigned(tm->tm_min), "TimeStamp should return correct minute");
+  //   log(rightNow.second() == unsigned(tm->tm_sec), "TimeStamp should return correct second");
+
+  //   // Testing constructor
+  //   TimeStamp ts2(12, 45, 30, 25, 12, 2023); // 12:45:30 on 25th December 2023
+  //   log(ts2.year() == 2023, "TimeStamp should return correct year from constructor");
+  //   log(ts2.month() == 12, "TimeStamp should return correct month from constructor");
+  //   log(ts2.day() == 25, "TimeStamp should return correct day from constructor");
+  //   log(ts2.hour() == 12, "TimeStamp should return correct hour from constructor");
+  //   log(ts2.minute() == 45, "TimeStamp should return correct minute from constructor");
+  //   log(ts2.second() == 30, "TimeStamp should return correct second from constructor");
+  //   log(ts2.as_str() == "12:45:30 25-12-2023", "TimeStamp should format specific time correctly");
+
+  //   // Error handling
+  //   str_t errHeaderTime = cslib_throw_header("TimeStamp", "Invalid time: 25:-1:61"); // Shifts by line
+  //   log(try_result(fn(TimeStamp(25, -1, 61, 1, 1, 2023)), errHeaderTime), "TimeStamp should throw an error for invalid time");
+  //   str_t errHeaderDate = cslib_throw_header("TimeStamp", "Invalid date: 32-13--1");
+  //   log(try_result(fn(TimeStamp(12, 30, 10, 32, 13, -1)), errHeaderDate), "TimeStamp should throw an error for invalid date");
+  // }
+
+
+
+  // title("Testing cslib::Out"); {
+  //   std::ostringstream oss;
+  //   Out(oss, "[checking cslib::Out]", Cyan) << "narrow" << '_' << 123 << 3.14f;
+  //   str_t expected = to_str("[") + TimeStamp().as_str() + "]\033[36m[checking cslib::Out] \033[0mnarrow_1233.14";
+  //   log(oss.str() == expected, "cslib::Out with a mix of streamable types should format correctly");
+  // }
+
+
+
+  // title("Testing cslib::Benchmark"); {
+  //   Benchmark bm1;
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for 0.05 seconds
+  //   double elapsed = bm1.elapsed_ms();
+  //   log(elapsed >= 49 and elapsed <= 51, "Benchmark should measure time correctly (took ", elapsed, "ms)");
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for another 0.5 seconds
+  //   elapsed = bm1.elapsed_ms();
+  //   log(elapsed >= 98 and elapsed <= 102, "Benchmark should measure time correctly after another 0.05 seconds (took ", elapsed, "ms)");
+  //   bm1.reset();
+  //   std::this_thread::sleep_for(std::chrono::milliseconds(50)); // Sleep for 0.05 seconds after reset
+  //   elapsed = bm1.elapsed_ms();
+  //   log(elapsed >= 49 and elapsed <= 51, "Benchmark should reset and measure time correctly after reset (took ", elapsed, "ms)");
+  // }
+
+
+
+  // title("Testing cslib::Road on its children"); {
+  //   const TempFile FILE_;
+
+  //   // Read entry properties
+  //   File road(FILE_.str());
+  //   log(TimeStamp(road.last_modified()).as_str() == TimeStamp().as_str(), "Road should have the correct last modified time");
+  //   log(road.type() == std::filesystem::file_type::regular, "Road should create a regular file");
+
+  //   // Name and position checks
+  //   log(road.name() == road.isAt.filename(), "Road name should match filename");
+  //   if constexpr (IS_WINDOWS)
+  //     log(road.depth() == 6, "Road should have the correct depth for temp file"); // e.g., C:\Users\Username\AppData\Local\Temp\cslib_test_log.txt
+  //   else
+  //     log(road.depth() == 2, "Road should have the correct depth for temp file"); // e.g., /tmp/cslib
+  //   maybe<Folder> root = road[0];
+  //   maybe<Folder> parent = road[road.depth() - 1];
+  //   log(!!root, "Road should have a root folder");
+  //   if (root) {
+  //     str_t stdRoot = std::filesystem::current_path().root_path().string(); // "C:\" or "/"
+  //     log(root->str() == stdRoot, to_str("Road root folder name should be root disk '") + stdRoot + "' but is '" + root->str() + "'");
+  //     log(root->depth() == 0, "Road root folder depth should be 0");
+  //   }
+
+  //   // renaming self
+  //   str_t previousName = road.name(); // Backup previous name
+  //   str_t tempName = TempFile().name(); // Deletes rvalue File after for access
+  //   maybe<void> resultBefore = road.rename_self_to(tempName); // Warning: cslib::File now points to invalid file
+  //   log(!!resultBefore, "Road should return a valid result when renaming");
+  //   log(road.name() == tempName, "Road should rename itself correctly");
+  //   maybe<void> resultAfter = road.rename_self_to(previousName); // Restore previous name
+  //   log(!road.rename_self_to("f\\/sf"), "Road should reject an attempt to move instead of renaming");
+  //   log(road.rename_self_to("f\\/sf").error() == "Filename can't be moved with this function (previous: '" + road.str() + "', new: 'f\\/sf')", "Road should throw the correct error upon move (on disk) attempt");
+  //   log(road.name() == previousName, "Even after failed attempts to rename, Road should retain its original name");
+
+  //   // Equality and inequality checks
+  //   File roadCopy(road);
+  //   log(roadCopy == road, "Road == operator should work for same file paths");
+  //   log(roadCopy != Folder("../"), "Road != operator should work for different file paths");
+  //   log(roadCopy == FILE_.str(), "Road == operator should work for strings");
+  //   log(roadCopy != (FILE_.str() + "???"), "Road != operator should work for different strings");
+
+  //   // Conversions to other types
+  //   log(str_t(road) == FILE_.str(), "Road should convert to string correctly");
+  //   std::filesystem::path& logFileAsFsRef = road;
+  //   log(logFileAsFsRef == road, "Road should convert to filesystem path reference correctly");
+  //   const std::filesystem::path& logFileAsFsConstRef = road;
+  //   log(logFileAsFsConstRef == road, "Road should convert to filesystem path const reference correctly");
+  //   std::filesystem::path logFileAsFsCopy = road;
+  //   log(logFileAsFsCopy == road, "Road should convert to filesystem path copy correctly");
+  //   std::filesystem::path* logFileAsFsPtr = road;
+  //   log(logFileAsFsPtr == (void*)&road, "Road should return its filesystem path pointer correctly");
+  //   const std::filesystem::path* logFileAsFsConstPtr = road;
+  //   log(logFileAsFsConstPtr == (void*)&road, "Road should return its filesystem path const pointer correctly");
+
+  //   // Construction (via BizarreRoad as Road::Road() is protected)
+  //   str_t errHeader = cslib_throw_header("Road", "Path empty");
+  //   log(try_result(fn(BizarreRoad("")), errHeader), "Protected Road constructor should throw an error for empty path");
+  // }
+
+
+
+  // title("Skipping cslib::BizarreRoad due to limited testing tools/skills");
+
+
+
+  // title("Testing child cslib::Folder class of cslib::Road"); {
+  //   TempFolder tempFolder;
+
+  //   // Construction
+  //   str_t voidFolder = TempFolder().str();
+  //   str_t errorHead = cslib_throw_header("operator()", "Path '", voidFolder, "' is not a directory");
+  //   log(try_result(fn(Folder nonExistingFolder(voidFolder)), errorHead), "Folder constructor should throw an error for non-existing folder when trying to determine if path is a directory");
+
+  //   // Read properties
+  //   log(tempFolder.list().empty(), "Folders should be empty at creation");
+  //   TempFolder dummyFolder;
+  //   TempFile dummySubFile;
+
+  //   // Move
+  //   log(!!dummyFolder.move_self_into(tempFolder), "Moving a folder should succeed");
+  //   log(!!dummySubFile.move_self_into(dummyFolder), "Moving a file should work too");
+  //   log(!!tempFolder.find(dummyFolder.name()), "Folder should find its own subfolder");
+  //   log(!!dummyFolder.find(dummySubFile.name()), "Folder should find its own subfile");
+  //   log(std::filesystem::exists(dummyFolder.str() + "/" + dummySubFile.name()), "The subfile should exist in the folder");
+  //   log(tempFolder.list().size() == 1, "Folder should be able to read its contents");
+  //   log(tempFolder.untyped_list().size() == 1, "Folder untyped_list should be accurate too");
+  //   log(std::get<Folder>(tempFolder.list().front()) == dummyFolder, "Folder should contain the moved file");
+
+  //   // Copy self
+  //   TempFolder copyDest;
+  //   maybe<Folder> copiedTempFolder = tempFolder.copy_self_into(copyDest);
+  //   log(std::filesystem::exists(copyDest / tempFolder.name() / dummyFolder.name() / dummySubFile.name()), "Copying should be recursive by default");
+  //   log(!tempFolder.copy_self_into(copyDest), "Copying shouldn't overwrite existing folders");
+  //   log(tempFolder.copy_self_into(copyDest).error() == "Path '" + tempFolder.str() + "' already exists in folder '" + copyDest.str() + "'", "Copying should fail with the correct error message");
+
+  //   // Copy content (skipped because those are std::filesystem tests)
+  // }
+
+
+
+  // title("Testing child class of cslib::Road, cslib::File"); {
+  //   TempFile tempFile;
+
+  //   log(tempFile.read_text().value().empty() and tempFile.read_binary().value().empty(), "Newly created temp file should be empty");
+  //   log(!!tempFile.edit_binary(std::vector<int>({1}).data(), 1), "Binary-level edits should be possible");
+  //   log(!!tempFile.read_binary(), "Binary-level reads should be possible");
+  //   log(tempFile.read_binary().value() == std::vector<char>({1}), "Binary-level reads should return the correct data");
+  //   log(!!tempFile.edit_text("1"), "Text-level edits should be possible");
+  //   log(!!tempFile.read_text(), "Text-level reads should be possible");
+  //   log(tempFile.read_text().value() == "1", "Text-level reads should return the correct data");
+  //   log(tempFile.extension() == ".tmp", "Function should recognize the file extension including dot");
+  //   log(tempFile.bytes() == 1, "Function should return the correct file size");
+  // }
+
+
+
+  // title("Skipping cslib::TempFolder and cslib::File as they were tested previously");
+
+
+
+  // title("Testing cslib::wget"); {
+  //   log(get("https://www.example.com").value().find("<title>") != str_t::npos, "get func should retrieve the webpage");
+  //   log(!get("https://www." + scramble_filename(64) + ".com"), "get should fail for made-up/invalid URLs");
+  // }

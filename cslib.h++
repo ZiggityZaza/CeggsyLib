@@ -204,6 +204,23 @@ namespace cslib {
 
 
 
+  template <typename F>
+  maybe<std::invoke_result_t<F>> caugth(F&& lambda) noexcept {
+    // Meant for lambdas
+    try {
+      if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
+        std::invoke(std::forward<F>(lambda));
+        return {};
+      }
+      else
+        return std::invoke(std::forward<F>(lambda));
+    } catch (...) {
+      return std::unexpected(std::current_exception());
+    }
+  }
+
+
+
   maybe<std::vector<str_t>> parse_cli_args(int argc, const char *const args[]) noexcept {
     /*
       Parse command line arguments and return
@@ -213,7 +230,7 @@ namespace cslib {
         align even when nullptr or vector won't
         recognize values
     */
-    if (args == nullptr or argc <= 0)
+    if (args == nullptr || argc <= 0)
       return unexpect<std::invalid_argument>("No proper command line arguments provided");
     return std::vector<str_t>(args, args + argc); // Includes binary name
   }
@@ -295,46 +312,75 @@ namespace cslib {
 
 
 
-  maybe<str_t> read_data(std::istream& inStream) noexcept {
-    /*
-      Read all data from the given istream and return it as a string.
-      After reading, the stream is considered empty.
-      Throws an error if the stream is not open or in a bad state.
-      Note:
-        Handling encoding, other states, flags or similar are managed
-        by the caller. This function only cleans up its own changes.
-    */
-    const std::ios::iostate oldIoEx = inStream.exceptions();
-    inStream.exceptions(std::ios::badbit); // Enable exceptions for fail and bad bits
-    try {
-      std::streampos previousPos = inStream.tellg();
-      str_t result{std::istreambuf_iterator<char>(inStream), std::istreambuf_iterator<char>()};
-      if (previousPos != -1)
-        inStream.seekg(previousPos);
-      inStream.exceptions(oldIoEx);
-      return result;
+  class StreamConfigGuard { public:
+    // Uses RAII to restore stream configs
+    std::ios& stream;
+    std::ios::fmtflags flags;
+    std::streamsize prec;
+    char fill;
+    std::ios::iostate rdstate;
+    std::ios::iostate exceptions;
+    std::locale loc;
+    std::ostream* tie;
+    std::streampos gpos;
+    std::streampos ppos;
+
+    StreamConfigGuard(const StreamConfigGuard&) = delete;
+    StreamConfigGuard(StreamConfigGuard&&) = delete;
+    StreamConfigGuard& operator=(const StreamConfigGuard&) = delete;
+    StreamConfigGuard& operator=(StreamConfigGuard&&) = delete;
+    explicit StreamConfigGuard(std::ios&&) = delete;
+    explicit StreamConfigGuard(std::ios& s) noexcept :
+      stream(s),
+      flags(s.flags()),
+      prec(s.precision()),
+      fill(s.fill()),
+      rdstate(s.rdstate()),
+      exceptions(s.exceptions()),
+      loc(s.getloc()),
+      tie(s.tie()) {
+      if (auto* in = dynamic_cast<std::istream*>(&s))
+        gpos = in->tellg();
+      else if (auto* out = dynamic_cast<std::ostream*>(&s))
+        ppos = out->tellp();
     }
-    catch (...) {
-      inStream.exceptions(oldIoEx);
-      return std::unexpected(std::current_exception());
+    ~StreamConfigGuard() noexcept {
+      stream.flags(flags);
+      stream.precision(prec);
+      stream.fill(fill);
+      stream.exceptions(exceptions);
+      stream.imbue(loc);
+      stream.tie(tie);
+      stream.clear(rdstate); // restore stream state bits
+      if (auto* in = dynamic_cast<std::istream*>(&stream); in && gpos != std::streampos(-1))
+        in->seekg(gpos);
+      else if (auto* out = dynamic_cast<std::ostream*>(&stream); out && ppos != std::streampos(-1))
+        out->seekp(ppos);
     }
-    std::unreachable();
+  };
+
+
+
+  maybe<std::vector<char>> read_data(std::istream& inStream) noexcept {
+    if (inStream.eof())
+      return std::vector<char>();
+    const StreamConfigGuard scg(inStream);
+    return caugth([&] {
+      inStream.exceptions(std::ios::failbit | std::ios::badbit);
+      return std::vector<char>{std::istreambuf_iterator<char>(inStream), std::istreambuf_iterator<char>()};
+    });
   }
   maybe<void> do_io(std::istream& inStream, std::ostream& outStream) noexcept {
-    maybe<str_t> data = read_data(inStream);
+    maybe<std::vector<char>> data = read_data(inStream);
     if (!data)
       return std::unexpected(data.error());
-    const std::ios::iostate oldIoEx = inStream.exceptions();
-    outStream.exceptions(std::ios::badbit);
-    try {
-      outStream << *data << std::flush;
-      inStream.exceptions(oldIoEx);
-    }
-    catch (...) {
-      outStream.exceptions(oldIoEx);
-      return std::unexpected(std::current_exception());
-    }
-    return {};
+    const StreamConfigGuard scgi(inStream);
+    const StreamConfigGuard scgo(outStream);
+    return caugth([&] {
+      outStream.exceptions(std::ios::failbit | std::ios::badbit);
+      outStream.write(data->data(), data->size());
+      outStream.flush();
+    });
   }
 
 
@@ -363,7 +409,7 @@ namespace cslib {
       if (!ymd.ok())
         throw std::logic_error(to_str("Invalid date: ", day, "-", month, "-", year));
       // Determine time
-      if ((hour >= 24 or hour < 0) or (min >= 60 or min < 0) or (sec >= 60 or sec < 0))
+      if ((hour >= 24 || hour < 0) || (min >= 60 || min < 0) || (sec >= 60 || sec < 0))
         throw std::logic_error(to_str("Invalid time: ", hour, ":", min, ":", sec));
       std::chrono::hh_mm_ss hms{
         std::chrono::hours(hour) +
@@ -498,14 +544,11 @@ namespace cslib {
       Returns the actual path of the entry on disk
       but won't resolve symlinks.
     */
-    try {
-      if (stdfs::exists(path) and stdfs::is_symlink(path))
+    return caugth([&] {
+      if (stdfs::exists(path) && stdfs::is_symlink(path))
         return stdfs::read_symlink(path);
       return stdfs::canonical(path);
-    }
-    catch (...) {
-      return std::unexpected(std::current_exception());
-    }
+    });
   }
   MACRO PATH_SEPARATOR = IS_WINDOWS ? '\\' : '/';
   class File;
@@ -527,12 +570,16 @@ namespace cslib {
     // Path management
     str_t str() const noexcept { return isAt.string(); }
     str_t name() const noexcept { return isAt.filename().string(); }
-    stdfs::file_type type() const {
-      return stdfs::status(isAt).type();
+    maybe<stdfs::file_type> type() const noexcept {
+      return caugth([&] {
+        return stdfs::status(isAt).type();
+      });
     }
-    std::chrono::system_clock::time_point last_modified() const noexcept {
-      auto ftime = stdfs::last_write_time(isAt);
-      return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
+    maybe<std::chrono::system_clock::time_point> last_modified() const noexcept {
+      return caugth([&] {
+        auto ftime = stdfs::last_write_time(isAt);
+        return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
+      });
     }
     size_t depth() const noexcept {
       /*
@@ -554,27 +601,24 @@ namespace cslib {
           are not created
       */
       if (newName.find(PATH_SEPARATOR) != str_t::npos)
-        return unexpect<std::invalid_argument>("Filename can't be moved with this function (previous: '", str(), "', new: '", newName, "')");
+        return unexpect<std::invalid_argument>("Filename can't be moved with this function (previous: ", this, ", new: '", newName, "')");
       const stdfs::path newPath = isAt.parent_path() / newName;
       if (newName.empty())
-        return unexpect<std::invalid_argument>("Can't rename '", str(), "' to an empty name");
+        return unexpect<std::invalid_argument>("Can't rename ", this, " to an empty name");
       if (stdfs::exists(isAt.parent_path() / newName))
-        return unexpect<std::runtime_error>("File already exists: '", newPath, "'");
-      try {
+        return unexpect<std::runtime_error>("File already exists: '", newPath.string(), "'");
+      return caugth([&] {
         stdfs::rename(isAt, newPath);
-      } catch (...) {
-        return std::unexpected(std::current_exception());
-      }
+      });
       isAt = newPath; // Update the path
       return {};
     }
 
-    
+
     bool operator==(Road other) const noexcept { return this->isAt == other.isAt; }
     bool operator!=(Road other) const noexcept { return !(*this == other); }
     bool operator==(stdfs::path other) const noexcept { return this->isAt == other; }
     bool operator!=(stdfs::path other) const noexcept { return !(*this == other); }
-    operator bool() const noexcept { return stdfs::exists(isAt); } // Check if path exists
     // Implicitly converts wide (c-)strings to stdfs::path 
 
 
@@ -612,11 +656,9 @@ namespace cslib {
         should be taken to ensure proper
         initialization
       */
-      try {
+      return caugth([&] {
         return Road(where);
-      } catch (...) {
-        return std::unexpected(std::current_exception());
-      }
+      });
     }
   };
 
@@ -650,7 +692,7 @@ namespace cslib {
     */
     File() = default;
     File(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
-      if (createIfNotExists and !stdfs::exists(where))
+      if (createIfNotExists && !stdfs::exists(where))
         std::ofstream(where) << "";
       if (!stdfs::is_regular_file(where))
         throw std::invalid_argument("Path '" + where.string() + "' is not a regular file");
@@ -660,60 +702,15 @@ namespace cslib {
 
     maybe<str_t> read_text() const noexcept {
       std::ifstream file(isAt, std::ios::in);
-      const std::ios_base::iostate oldIoEx = file.exceptions();
-      file.exceptions(std::ios_base::failbit | std::ios_base::badbit);
-      try {
-        const str_t content = str_t((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
-        file.exceptions(oldIoEx);
-        return content;
-      } catch (...) {
-        file.exceptions(oldIoEx);
-        return std::unexpected(std::current_exception());
-      }
+      maybe<std::vector<char>> data = read_data(file);
+      if (!data)
+        return std::unexpected(data.error());
+      return str_t(data->begin(), data->end());
     }
-    maybe<void> edit_text(strv_t newText) const noexcept {
+    maybe<void> edit_text(const str_t& newText) const noexcept {
       std::ofstream file(isAt, std::ios::out | std::ios::trunc);
-      const std::ios_base::iostate oldIoEx = file.exceptions();
-      try {
-        file << newText;
-        file.exceptions(oldIoEx);
-      } catch (...) {
-        file.exceptions(oldIoEx);
-        return std::unexpected(std::current_exception());
-      }
-      return {};
-    }
-
-
-    [[nodiscard]] maybe<std::vector<byte_t>> read_binary() const noexcept {
-      /*
-        Streambufs for byte-by-byte reading
-        for raw data reading.
-      */
-      std::ifstream file(isAt, std::ios::binary);
-      const std::ios_base::iostate oldIoEx = file.exceptions();
-      try {
-        const std::vector<byte_t> result = std::vector<byte_t> {
-        std::istreambuf_iterator<byte_t>(file),
-        std::istreambuf_iterator<byte_t>() };
-        file.exceptions(oldIoEx);
-        return result;
-      } catch(...) {
-        file.exceptions(oldIoEx);
-        return std::unexpected(std::current_exception());
-      }
-    }
-    [[nodiscard]] maybe<void> edit_binary(const void *const newData, size_t len) const {
-      std::ofstream file(isAt, std::ios::binary | std::ios::trunc);
-      const std::ios_base::iostate oldIoEx = file.exceptions();
-      try {
-        file.write(reinterpret_cast<const char *const>(newData), len);
-        file.exceptions(oldIoEx);
-      } catch(...) {
-        file.exceptions(oldIoEx);
-        return std::unexpected(std::current_exception());
-      }
-      return {};
+      std::istringstream streamedData(newText);
+      return do_io(streamedData, file);
     }
 
 
@@ -739,7 +736,7 @@ namespace cslib {
     */
     Folder() = default;
     Folder(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
-      if (createIfNotExists and !stdfs::exists(where))
+      if (createIfNotExists && !stdfs::exists(where))
         stdfs::create_directory(where);
       if (!stdfs::is_directory(where))
         throw std::invalid_argument("Path '" + where.string() + "' is not a directory");
@@ -796,7 +793,7 @@ namespace cslib {
       if (lookFor.empty())
         return unexpect<std::invalid_argument>("Path is empty");
       if constexpr (IS_WINDOWS) {
-        if (lookFor[2] == PATH_SEPARATOR and lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
+        if (lookFor[2] == PATH_SEPARATOR && lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
           return unexpect<std::invalid_argument>("Path starts with a drive letter and a path separator, thus is absolute");
       }
       else {
@@ -837,7 +834,10 @@ namespace cslib {
       maybe<Road> result = untyped_find(path);
       if (!result)
         return std::unexpected(result.error());
-      switch (result.value().type()) {
+      maybe<stdfs::file_type> type = result.value().type();
+      if (!type)
+        return std::unexpected(type.error());
+      switch (*type) {
         case stdfs::file_type::regular: return File(*result);
         case stdfs::file_type::directory: return Folder(*result);
         default: return BizarreRoad(*result);
@@ -919,14 +919,12 @@ namespace cslib {
 
 
 
-  MACRO SCRAMBLE_LEN = 5ULL; // 59^n possible combinations
-  static_assert(SCRAMBLE_LEN > 0, "SCRAMBLE_LEN must be greater than 0 so that temporary filenames can be generated");
-  str_t scramble_filename(size_t len = SCRAMBLE_LEN) noexcept {
+  str_t scramble_name(size_t len = 5ULL /*~59^n possible combinations*/ ) noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
       characters. The filename consists of uppercase and lowercase
-      letters and digits. If `len` is specified, make sure it's
-      above 0
+      letters and digits. `len` must be greater than 0 so that
+      temporary filenames can be generated.
       Note:
         If all possible names are exhausted, the calling code
         will be stuck in an infinite loop.
@@ -946,17 +944,17 @@ namespace cslib {
 
 
 
-  class TempFile : public File { public:
+  class TempFile final : public File { public:
     /*
       Create a temporary file with a random name in the system's
       temporary directory. The name is generated by rolling dice
       to create a random string of letters and digits.
     */
     TempFile() : File([] {
-      str_t tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
+      str_t tempFileName;
       // Ensure the file does not already exist
       while (stdfs::exists(stdfs::temp_directory_path() / tempFileName))
-        tempFileName = "cslibTempFile_" + scramble_filename() + ".tmp";
+        tempFileName = "cslibTempFile_" + scramble_name() + ".tmp";
       return stdfs::temp_directory_path() / tempFileName;
     }(), true) {}
     ~TempFile() noexcept {
@@ -971,7 +969,7 @@ namespace cslib {
 
 
 
-  class TempFolder : public Folder { public:
+  class TempFolder final : public Folder { public:
     /*
       Create a temporary folder with a random name in the system's
       temporary directory. The name is generated by rolling dice
@@ -981,9 +979,9 @@ namespace cslib {
         into account and deletes them.
     */
     TempFolder() : Folder([] {
-      str_t tempFolderName = "cslibTempFolder_" + scramble_filename();
+      str_t tempFolderName;
       while (stdfs::exists(stdfs::temp_directory_path() / tempFolderName))
-        tempFolderName = "cslibTempFolder_" + scramble_filename();
+        tempFolderName = "cslibTempFolder_" + scramble_name();
       return stdfs::temp_directory_path() / tempFolderName;
     }(), true) {}
     ~TempFolder() noexcept {
@@ -1016,7 +1014,7 @@ namespace cslib {
 
 
   template <typename T>
-  requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
+  requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
   inline constexpr T highest_value_of() noexcept {
     /*
       Get the highest possible value that
@@ -1025,7 +1023,7 @@ namespace cslib {
     return std::numeric_limits<T>::max();
   }
   template <typename T>
-  requires (std::is_integral_v<T> or std::is_floating_point_v<T>)
+  requires (std::is_integral_v<T> || std::is_floating_point_v<T>)
   inline constexpr T lowest_value_of() noexcept {
     /*
       Get the lowest possible value that
@@ -1071,7 +1069,7 @@ namespace cslib {
 
 
   template <typename To = int, typename From>
-  requires (std::is_arithmetic_v<From> and std::is_arithmetic_v<To>)
+  requires (std::is_arithmetic_v<From> && std::is_arithmetic_v<To>)
   inline constexpr maybe<To> to_number(const From& number) noexcept {
     /*
       Gives an additional layer of safety when
@@ -1081,7 +1079,7 @@ namespace cslib {
       expects an int.
     */
     static_assert(!std::is_same_v<From, To>, "Conversion between same types is not necessary");
-    if (number < lowest_value_of<To>() or number > highest_value_of<To>())
+    if (number < lowest_value_of<To>() || number > highest_value_of<To>())
       return unexpect("Number ", number, " is higher/lower than ", lowest_value_of<To>(), "/", highest_value_of<To>());
     return To(number);
   }
@@ -1117,6 +1115,6 @@ namespace cslib {
     // Inclusive to allow 0 in unsigned types
     if (atLeast > atMost)
       std::swap(atLeast, atMost);
-    return val >= atLeast and val <= atMost;
+    return val >= atLeast && val <= atMost;
   }
 } // namespace cslib

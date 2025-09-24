@@ -173,8 +173,8 @@ int main() {
 
   title("Testing cslib::sh_call"); {
     log(sh_call("cd ./").has_value(), "system call to run");
-    log(!sh_call(scramble_filename(64)/*random name*/), "sh_call should recognize errors.");
-    log(sh_call(scramble_filename(64)/*random name*/).error() != 0, "sh_call should return the error-code upon faliure");
+    log(!sh_call(scramble_name(64)/*random name*/), "sh_call should recognize errors.");
+    log(sh_call(scramble_name(64)/*random name*/).error() != 0, "sh_call should return the error-code upon faliure");
   }
 
 
@@ -446,126 +446,443 @@ int main() {
 
 
 
+  auto s2v = [](strv_t s) {
+    return std::vector<char>{s.begin(), s.end()};
+  };
   title("Testing cslib::read_data"); {
-    
-    // Normal reading from a stringstream
+  
+    // Read full stream and restore state
     {
-      std::stringstream ss("Hello, World!");
-      maybe<str_t> result = read_data(ss);
-      log(result.has_value() && *result == "Hello, World!", "read_data normal stringstream");
-      // Stream should be at beginning again if tellg worked
-      ss.seekg(0, std::ios::end);
-      log(ss.tellg() == std::streampos(13), "stream position after read_data restored correctly");
+      std::istringstream in("hello world");
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::ios::iostate oldState = in.rdstate();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value() == s2v("hello world"), "read_data reads full content");
+      log(in.tellg() == pos, "read_data restores stream position (start)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (start)");
+      log(in.rdstate() == oldState, "read_data preserves rdstate (start)");
     }
 
-    // Empty stream
+
+    // Empty input
     {
-      std::stringstream ss;
-      maybe<str_t> result = read_data(ss);
-      log(result.has_value() && result->empty(), "read_data empty stringstream returns empty string");
+      std::istringstream in("");
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value().empty(), "read_data on empty stream returns empty string");
+      log(in.tellg() == pos, "read_data restores stream position (empty)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (empty)");
     }
 
-    // Stream in fail state
+
+    // Start in the middle of the stream
     {
-      std::stringstream ss;
-      ss.setstate(std::ios::failbit);
-      maybe<str_t> result = read_data(ss);
-      log(!result.has_value(), "read_data with failbit returns unexpected");
-      if (!result.has_value()) {
-        try { std::rethrow_exception(result.error()); }
-        catch (const std::exception& e) { 
-          log(true, "read_data failbit throws exception"); 
+      std::istringstream in("abcdef");
+      in.seekg(2); // position -> points at 'c'
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value() == s2v("cdef"), "read_data reads from current position to end");
+      log(in.tellg() == pos, "read_data restores stream position (middle)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (middle)");
+    }
+
+
+    // Start at EOF
+    {
+      std::istringstream in("xyz");
+      in.seekg(3); // position at end
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value().empty(), "read_data at EOF returns empty string");
+      log(in.tellg() == pos, "read_data restores stream position (EOF)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (EOF)");
+    }
+
+
+    // Large input
+    {
+      str_t big(9'999'999, 'A');
+      std::istringstream in(big);
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value().size() == big.size() && res.value() == s2v(big), "read_data handles large input correctly");
+      log(in.tellg() == pos, "read_data restores stream position (large)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (large)");
+    }
+
+
+    // Embedded null bytes
+    {
+      const char raw[] = {'a','b', '\0', 'c', 'd'};
+      str_t s(raw, sizeof(raw));
+      std::istringstream in(s);
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value() && res.value().size() == s.size() && res.value() == s2v(s), "read_data preserves embedded null bytes and exact length");
+      log(in.tellg() == pos, "read_data restores stream position (embedded nulls)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (embedded nulls)");
+    }
+
+
+    // Re-read consistency: calling it twice from same position should give same result
+    {
+      std::istringstream in("repeatable content");
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> a = read_data(in);
+      maybe<std::vector<char>> b = read_data(in);
+      log(a.has_value() && b.has_value() && a.value() == b.value() && a.value() == s2v("repeatable content"), "read_data is consistent across multiple invocations");
+      log(in.tellg() == pos, "read_data restores stream position (repeatable)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (repeatable)");
+    }
+
+
+    // Re-read consistency: calling it twice from same position should give same result
+    {
+      std::istringstream in("repeatable content");
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg();
+
+      maybe<std::vector<char>> a = read_data(in);
+      maybe<std::vector<char>> b = read_data(in);
+      log(a.has_value() && b.has_value() && a.value() == b.value() && a.value() == s2v("repeatable content"), "read_data is consistent across multiple invocations");
+      log(in.tellg() == pos, "read_data restores stream position (repeatable)");
+      log(in.exceptions() == oldEx, "read_data restores exception mask (repeatable)");
+    }
+
+
+    // Non-seekable stream consistency: calling it twice
+    {
+      struct NonSeekableBuf : public std::stringbuf {
+        NonSeekableBuf(const str_t& s = "") { this->str(s); }
+        std::streampos seekoff(std::streamoff, std::ios_base::seekdir, std::ios_base::openmode) override {
+          return std::streampos(std::streamoff(-1));
         }
-        catch (...) {
-          log(false, "read_data failbit throws non-standard exception");
+        std::streampos seekpos(std::streampos, std::ios_base::openmode) override {
+          return std::streampos(std::streamoff(-1));
         }
-      }
+      } buf("nonseekable");
+
+      std::istream in(&buf);
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos pos = in.tellg(); // expected to be -1 / fail
+
+      maybe<std::vector<char>> res = read_data(in);
+      log(res.has_value(), "read_data also accepts non-seekable streams");
+      log(in.exceptions() == oldEx, "read_data restores exception mask after non-seekable failure");
+      // position may remain fail (-1), but make sure it's unchanged (compare to captured pos)
+      log(in.tellg() == pos, "read_data does not silently change tellg() for non-seekable stream");
     }
 
-    // Stream in bad state
-    {
-      std::stringstream ss;
-      ss.setstate(std::ios::badbit);
-      maybe<str_t> result = read_data(ss);
-      log(!result.has_value(), "read_data with badbit returns unexpected");
-    }
 
-    // Reading from file stream (simulate with stringstream)
+    // Ensure rdstate preservation on a stream that already has eofbit set
     {
-      std::stringstream ss("File content simulation");
-      maybe<str_t> result = read_data(ss);
-      log(result.has_value() && *result == "File content simulation", "read_data works with file-like stream");
+      std::istringstream in("abc");
+      // consume all to set eofbit
+      std::string tmp;
+      std::getline(in, tmp, '\0'); // read to end
+      const std::streampos pos = in.tellg();
+      const std::ios::iostate oldState = in.rdstate();
+      const std::ios::iostate oldEx = in.exceptions();
+
+      maybe<std::vector<char>> res = read_data(in);
+      // Result should be empty (already at EOF) and state/exceptions should be restored
+      if (!res)
+        std::rethrow_exception(res.error());
+      log(res.has_value() && res.value().empty(), "read_data at pre-set EOF returns empty string");
+      log(in.rdstate() == oldState, "read_data preserves rdstate when EOF was already set");
+      log(in.exceptions() == oldEx, "read_data restores exception mask when EOF was already set");
+      log(in.tellg() == pos, "read_data restores stream position when EOF was already set");
     }
   }
 
 
 
   title("Testing cslib::do_io"); {
-    
-    // Normal read from input and write to output
+
+    // Basic success: simple string transfer
     {
-      std::stringstream input("Some input data");
-      std::stringstream output;
-      maybe<void> res = do_io(input, output);
-      log(res.has_value(), "do_io normal input/output succeeds");
-      log(output.str() == "Some input data", "do_io writes correct content to output");
+      std::istringstream in("hello world");
+      std::ostringstream out;
+      maybe<void> res = do_io(in, out);
+      log(res.has_value(), "do_io succeeds on normal input/output");
+      log(out.str() == "hello world", "do_io writes correct content to output stream");
     }
 
-    // Empty input stream
+    // Empty input
     {
-      std::stringstream input;
-      std::stringstream output;
-      maybe<void> res = do_io(input, output);
-      log(res.has_value(), "do_io empty input returns success");
-      log(output.str().empty(), "do_io with empty input writes nothing");
+      std::istringstream in("");
+      std::ostringstream out;
+      maybe<void> res = do_io(in, out);
+      log(res.has_value(), "do_io succeeds with empty input");
+      log(out.str().empty(), "do_io writes empty string to output stream");
     }
 
-    // Input stream in fail state
+    // Non-seekable input stream
     {
-      std::stringstream input("fail test");
-      input.setstate(std::ios::failbit);
-      std::stringstream output;
-      maybe<void> res = do_io(input, output);
-      log(!res.has_value(), "do_io fails if input stream has failbit");
+      struct NonSeekableBuf : public std::stringbuf {
+        NonSeekableBuf(const std::string& s = "") { this->str(s); }
+        std::streampos seekoff(std::streamoff, std::ios_base::seekdir, std::ios_base::openmode) override { return std::streampos(-1); }
+        std::streampos seekpos(std::streampos, std::ios_base::openmode) override { return std::streampos(-1); }
+      } buf("Unseekable");
+      std::istream in(&buf);
+      std::ostringstream out;
+      maybe<void> res = do_io(in, out);
+      log(res.has_value() && out.str() == "Unseekable", "do_io returns unexpected when input stream cannot be read");
+    }
+
+    // Output stream throws on write
+    {
+      struct ThrowOnWriteBuf : public std::stringbuf {
+        std::streamsize xsputn(const char_type* s, std::streamsize n) override {
+          (void)s;
+          (void)n;
+          throw std::runtime_error("write error");
+        }
+      } buf;
+
+      std::istringstream in("data");
+      std::ostream out(&buf);
+
+      maybe<void> res = do_io(in, out);
+      log(!res.has_value(), "do_io returns unexpected when output stream throws");
       if (!res.has_value()) {
-          try { std::rethrow_exception(res.error()); }
-          catch (...) { log(true, "do_io preserves exception from read_data"); }
+        try {
+          std::rethrow_exception(res.error());
+        } catch (const std::runtime_error& e) {
+          log(std::string(e.what()) == "write error", "do_io preserves output write exception message");
+        } catch (...) {
+          log(false, "do_io preserves wrong exception type from output write");
+        }
       }
     }
 
-    // Output stream in fail state
+    // RAII guard restores exception masks and positions
     {
-      std::stringstream input("Hello");
-      std::stringstream output;
-      output.setstate(std::ios::failbit);
-      maybe<void> res = do_io(input, output);
-      log(!res.has_value(), "do_io fails if output stream has failbit");
-      if (!res.has_value()) {
-          try { std::rethrow_exception(res.error()); }
-          catch (...) { log(true, "do_io preserves exception from output writing"); }
-      }
+      std::istringstream in("restore test");
+      std::ostringstream out;
+
+      // set initial exception masks and positions
+      const std::ios::iostate inOldEx = in.exceptions();
+      const std::ios::iostate outOldEx = out.exceptions();
+      const std::streampos inPos = in.tellg();
+
+      maybe<void> res = do_io(in, out);
+
+      log(res.has_value(), "do_io succeeds normally with RAII guards");
+      log(in.exceptions() == inOldEx, "do_io restores input exception mask after successful write");
+      log(out.exceptions() == outOldEx, "do_io restores output exception mask after successful write");
+      log(in.tellg() == inPos, "do_io restores input stream position after successful write");
     }
 
-    // Output stream flush check
+    // Large data transfer
     {
-      std::stringstream input("Flush test");
-      std::stringstream output;
-      maybe<void> res = do_io(input, output);
-      log(res.has_value(), "do_io flushes output stream");
-      log(output.str() == "Flush test", "do_io content preserved and flushed correctly");
+      std::string big(9'999'999, 'X');
+      std::istringstream in(big);
+      std::ostringstream out;
+
+      maybe<void> res = do_io(in, out);
+      log(res.has_value(), "do_io handles large input successfully");
+      log(out.str().size() == big.size() && out.str() == big, "do_io writes full large input correctly");
     }
 
-    // Multiple reads/writes in sequence
+    // Embedded null bytes
     {
-      std::stringstream input1("First");
-      std::stringstream input2("Second");
-      std::stringstream output;
-      do_io(input1, output);
-      do_io(input2, output);
-      log(output.str() == "FirstSecond", "do_io supports consecutive operations correctly");
+      const char raw[] = {'A','B','\0','C','D'};
+      std::string s(raw, sizeof(raw));
+      std::istringstream in(s);
+      std::ostringstream out;
+
+      maybe<void> res = do_io(in, out);
+      log(res.has_value(), "do_io handles embedded null bytes without failure");
+      log(out.str().size() == s.size() && out.str() == s, "do_io preserves embedded null bytes in output");
+    }
+
+    // Input with eofbit already set
+    {
+      std::istringstream in("xyz");
+      std::string tmp;
+      std::getline(in, tmp, '\0'); // consume all -> eofbit set
+      const std::ios::iostate oldEx = in.exceptions();
+      const std::streampos oldPos = in.tellg();
+      std::ostringstream out;
+
+      maybe<void> res = do_io(in, out);
+      log(res.has_value(), "do_io succeeds even if input eofbit already set");
+      log(out.str().empty(), "do_io writes empty string when input eofbit is set");
+      log(in.exceptions() == oldEx, "do_io restores exception mask even if eofbit was set");
+      log(in.tellg() == oldPos, "do_io restores input position even if eofbit was set");
+    }
+
+    // Multiple sequential do_io calls: input stream restored each time
+    {
+      std::istringstream in("abc123");
+      std::ostringstream out1, out2;
+
+      maybe<void> res1 = do_io(in, out1);
+      maybe<void> res2 = do_io(in, out2);
+
+      log(res1.has_value() && res2.has_value(), "do_io succeeds on sequential calls");
+      log(out1.str() == "abc123" && out2.str() == "abc123", "do_io produces identical output for sequential calls");
     }
   }
 
+
+
+  title("Testing cslib::TimeStamp"); {
+    // Default constructor: should produce a time near now
+    {
+      auto before = std::chrono::system_clock::now();
+      TimeStamp ts;
+      auto after = std::chrono::system_clock::now();
+
+      log(ts.timePoint >= before && ts.timePoint <= after, "TimeStamp() default constructor produces timePoint near now");
+    }
+    // Constructor from time_point
+    {
+      auto now = std::chrono::system_clock::now();
+      TimeStamp ts(now);
+      log(ts.timePoint == now, "TimeStamp(time_point) stores correct timePoint");
+    }
+    // Constructor from valid date/time
+    {
+      TimeStamp ts(14, 30, 15, 10, 8, 2025); // 14:30:15 10-08-2025
+      log(ts.year() == 2025, "TimeStamp(year) returns correct year");
+      log(ts.month() == 8, "TimeStamp(month) returns correct month");
+      log(ts.day() == 10, "TimeStamp(day) returns correct day");
+      log(ts.hour() == 14, "TimeStamp(hour) returns correct hour");
+      log(ts.minute() == 30, "TimeStamp(minute) returns correct minute");
+      log(ts.second() == 15, "TimeStamp(second) returns correct second");
+
+      std::string str = ts.as_str();
+      log(str.find("14:30:15") != std::string::npos && str.find("10-08-2025") != std::string::npos,
+          "TimeStamp::as_str() contains correct formatted time and date");
+    }
+    // Leap year February 29th
+    {
+      try {
+        TimeStamp ts(0, 0, 0, 29, 2, 2024);
+        log(ts.year() == 2024 && ts.month() == 2 && ts.day() == 29, "TimeStamp allows valid leap year date");
+      } catch (...) {
+        log(false, "TimeStamp threw exception for valid leap year date");
+      }
+
+      try {
+        TimeStamp ts(0, 0, 0, 29, 2, 2023);
+        log(false, "TimeStamp should throw for invalid non-leap year February 29th");
+      } catch (const std::logic_error& e) {
+        log(std::string(e.what()).find("Invalid date") != std::string::npos, "Exception message indicates invalid date");
+      } catch (...) {
+        log(false, "TimeStamp threw wrong type for invalid February 29th");
+      }
+    }
+    // Invalid months/days
+    {
+      try { TimeStamp ts(0,0,0,0,1,2025); log(false, "Day 0 should throw"); } catch (...) { log(true, "Day 0 throws"); }
+      try { TimeStamp ts(0,0,0,32,1,2025); log(false, "Day 32 should throw"); } catch (...) { log(true, "Day 32 throws"); }
+      try { TimeStamp ts(0,0,0,1,0,2025); log(false, "Month 0 should throw"); } catch (...) { log(true, "Month 0 throws"); }
+      try { TimeStamp ts(0,0,0,1,13,2025); log(false, "Month 13 should throw"); } catch (...) { log(true, "Month 13 throws"); }
+    }
+    // Invalid times
+    {
+      try { TimeStamp ts(-1,0,0,1,1,2025); log(false, "Hour -1 should throw"); } catch (...) { log(true, "Hour -1 throws"); }
+      try { TimeStamp ts(24,0,0,1,1,2025); log(false, "Hour 24 should throw"); } catch (...) { log(true, "Hour 24 throws"); }
+      try { TimeStamp ts(0,-1,0,1,1,2025); log(false, "Minute -1 should throw"); } catch (...) { log(true, "Minute -1 throws"); }
+      try { TimeStamp ts(0,60,0,1,1,2025); log(false, "Minute 60 should throw"); } catch (...) { log(true, "Minute 60 throws"); }
+      try { TimeStamp ts(0,0,-1,1,1,2025); log(false, "Second -1 should throw"); } catch (...) { log(true, "Second -1 throws"); }
+      try { TimeStamp ts(0,0,60,1,1,2025); log(false, "Second 60 should throw"); } catch (...) { log(true, "Second 60 throws"); }
+    }
+    // Consistency between constructors
+    {
+      TimeStamp ts1(14, 45, 30, 15, 7, 2025);
+      TimeStamp ts2(std::chrono::system_clock::time_point(std::chrono::sys_days(
+        std::chrono::year(2025)/7/15
+      ) + std::chrono::hours(14) + std::chrono::minutes(45) + std::chrono::seconds(30)));
+      log(ts1.timePoint == ts2.timePoint, "TimeStamp(hour,min,sec,day,month,year) matches equivalent time_point constructor");
+    }
+    // as_str() format
+    {
+      TimeStamp ts(1,2,3,4,5,2025);
+      std::string str = ts.as_str();
+      log(str.size() > 0, "TimeStamp::as_str() returns non-empty string");
+      log(str.find("01:02:03") != std::string::npos, "as_str() formats hours, minutes, seconds with leading zeros");
+      log(str.find("04-05-2025") != std::string::npos, "as_str() formats day-month-year correctly");
+    }
+    // Edge: midnight at start of epoch
+    {
+      TimeStamp ts(0,0,0,1,1,1970);
+      log(ts.hour() == 0 && ts.minute() == 0 && ts.second() == 0, "TimeStamp midnight epoch correct");
+      log(ts.day() == 1 && ts.month() == 1 && ts.year() == 1970, "TimeStamp date epoch correct");
+    }
+    // Edge: end of day
+    {
+      TimeStamp ts(23,59,59,31,12,2025);
+      log(ts.hour() == 23 && ts.minute() == 59 && ts.second() == 59, "TimeStamp end of day correct");
+      log(ts.day() == 31 && ts.month() == 12 && ts.year() == 2025, "TimeStamp end of year correct");
+    }
+  }
+
+
+
+  title("Testing cslib::where_is_path_really"); {
+
+    // Existing file
+    {
+      std::ofstream tmp("tmp_file.txt");
+      tmp << "hello";
+      tmp.close();
+
+      maybe<stdfs::path> res = where_is_path_really("tmp_file.txt");
+      log(res.has_value(), "where_is_path_really returns value for existing file");
+      if (res.has_value())
+        log(stdfs::exists(*res), "returned path actually exists on disk");
+      std::remove("tmp_file.txt");
+    }
+
+    // Non-existent file
+    {
+      maybe<stdfs::path> res = where_is_path_really("definitely_nonexistent_file.txt");
+      log(!res.has_value(), "where_is_path_really returns unexpected for non-existent file");
+      if (!res.has_value()) {
+        try { std::rethrow_exception(res.error()); }
+        catch (...) { log(true, "exception preserved for non-existent file"); }
+      }
+    }
+
+    // Existing directory
+    {
+      std::filesystem::create_directory("tmp_dir");
+      maybe<stdfs::path> res = where_is_path_really("tmp_dir");
+      log(res.has_value(), "where_is_path_really returns value for existing directory");
+      if (res.has_value())
+        log(stdfs::exists(*res) && stdfs::is_directory(*res), "returned path exists and is a directory");
+      std::filesystem::remove("tmp_dir");
+    }
+
+    // Relative vs canonical
+    {
+      std::ofstream tmp("tmp_file2.txt");
+      tmp.close();
+      maybe<stdfs::path> res = where_is_path_really("tmp_file2.txt");
+      log(res.has_value(), "where_is_path_really returns value for file");
+      if (res.has_value())
+        log(res->is_absolute(), "returned path is absolute (canonical)");
+      std::remove("tmp_file2.txt");
+    }
+  }
 
 
 

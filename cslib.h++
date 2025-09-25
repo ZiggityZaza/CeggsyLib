@@ -46,8 +46,6 @@ namespace cslib {
   using sptr = std::shared_ptr<T>;
   template <typename T>
   using uptr = std::unique_ptr<T>;
-  template <typename T, typename Or = std::exception_ptr> // Contains error message
-  using maybe = std::expected<T, Or>;
   namespace stdfs = std::filesystem;
   #define MACRO inline constexpr auto // Macros for macro definitions
   MACRO IS_WINDOWS = [] {
@@ -69,22 +67,29 @@ namespace cslib {
 
 
 
+  inline constexpr str_t c2s(const char c) noexcept {
+    return std::string(1, c);
+  }
+  template <typename Number>
+  requires (std::is_integral_v<Number> || std::is_floating_point_v<Number> || std::is_arithmetic_v<Number>)
+  inline constexpr str_t i2s(const Number number) noexcept {
+    return std::to_string(number);
+  }
+  inline constexpr str_t c2s(const char *const cstr) {
+    if (cstr != nullptr)
+      return cstr;
+    throw std::invalid_argument("Trying convert a nullptr to string");
+  }
+
+
+
   void pause(size_t ms) noexcept {
     std::this_thread::sleep_for(std::chrono::milliseconds(ms));
   }
 
 
 
-  template <typename Ex>
-  std::unexpected<std::exception_ptr> unexpect(auto&&... _because) noexcept {
-    return std::unexpected<std::exception_ptr>{
-      std::make_exception_ptr(Ex(to_str(std::forward<decltype(_because)>(_because)...)))
-    };
-  }
-
-
-
-  maybe<str_t, int> sh_call(strv_t command) noexcept {
+  std::expected<str_t, int> sh_call(strv_t command) noexcept {
     /*
       Non-blocking system call that returns the
       output of the command. Returns exit code
@@ -176,7 +181,7 @@ namespace cslib {
 
   template <typename F, typename... Args>
   requires std::invocable<F, Args...>
-  maybe<std::invoke_result_t<F, Args...>> retry(F&& f, size_t maxAttempts, Args&&... args) noexcept {
+  std::expected<std::invoke_result_t<F, Args...>, std::exception_ptr> retry(F&& f, size_t maxAttempts, Args&&... args) noexcept {
     /*
       Retry a function up to `maxAttempts` times
       Example:
@@ -204,24 +209,7 @@ namespace cslib {
 
 
 
-  template <typename F>
-  maybe<std::invoke_result_t<F>> caugth(F&& lambda) noexcept {
-    // Meant for lambdas
-    try {
-      if constexpr (std::is_void_v<std::invoke_result_t<F>>) {
-        std::invoke(std::forward<F>(lambda));
-        return {};
-      }
-      else
-        return std::invoke(std::forward<F>(lambda));
-    } catch (...) {
-      return std::unexpected(std::current_exception());
-    }
-  }
-
-
-
-  maybe<std::vector<str_t>> parse_cli_args(int argc, const char *const args[]) noexcept {
+  std::vector<str_t> parse_cli_args(int argc, const char *const args[]) {
     /*
       Parse command line arguments and return
       them as a vector of strings.
@@ -231,7 +219,7 @@ namespace cslib {
         recognize values
     */
     if (args == nullptr || argc <= 0)
-      return unexpect<std::invalid_argument>("No proper command line arguments provided");
+      throw std::invalid_argument("No proper command line arguments provided");
     return std::vector<str_t>(args, args + argc); // Includes binary name
   }
 
@@ -260,25 +248,25 @@ namespace cslib {
 
 
   MACRO TRIM_WITH = "...";
-  inline constexpr maybe<str_t> rtrim(strv_t strsv, size_t maxLength) noexcept {
+  inline constexpr str_t rtrim(strv_t strsv, size_t maxLength) {
     /*
       Example:
         rtrim("cslib.h++", 6); // "csl..."
     */
     if (maxLength < std::strlen(TRIM_WITH))
-      return unexpect<std::invalid_argument>("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+      throw std::invalid_argument("maxLength must be at least " + i2s(std::strlen(TRIM_WITH)) + " ('" + TRIM_WITH + "' length)");
     if (strsv.length() <= maxLength)
       return str_t(strsv);
     return str_t(strsv.substr(0, maxLength - std::strlen(TRIM_WITH))) + TRIM_WITH;
   }
 
-  inline constexpr maybe<str_t> ltrim(strv_t strsv, size_t maxLength) noexcept {
+  inline constexpr str_t ltrim(strv_t strsv, size_t maxLength) {
     /*
       Example:
         ltrim("cslib.h++", 6); // "...h++"
     */
     if (maxLength < std::strlen(TRIM_WITH))
-      return unexpect<std::invalid_argument>("maxLength must be at least ", std::strlen(TRIM_WITH), " ('", TRIM_WITH, "' length)");
+      throw std::invalid_argument("maxLength must be at least " + i2s(std::strlen(TRIM_WITH)) + " ('" + TRIM_WITH + "' length)");
     if (strsv.length() <= maxLength)
       return str_t(strsv);
     return str_t(TRIM_WITH) + str_t(strsv.substr(strsv.length() - (maxLength - std::strlen(TRIM_WITH))));
@@ -361,26 +349,20 @@ namespace cslib {
 
 
 
-  maybe<std::vector<char>> read_data(std::istream& inStream) noexcept {
+  std::vector<char> read_data(std::istream& inStream) {
     if (inStream.eof())
       return std::vector<char>();
     const StreamConfigGuard scg(inStream);
-    return caugth([&] {
-      inStream.exceptions(std::ios::failbit | std::ios::badbit);
-      return std::vector<char>{std::istreambuf_iterator<char>(inStream), std::istreambuf_iterator<char>()};
-    });
+    inStream.exceptions(std::ios::failbit | std::ios::badbit);
+    return std::vector<char>{std::istreambuf_iterator<char>(inStream), std::istreambuf_iterator<char>()};
   }
-  maybe<void> do_io(std::istream& inStream, std::ostream& outStream) noexcept {
-    maybe<std::vector<char>> data = read_data(inStream);
-    if (!data)
-      return std::unexpected(data.error());
+  void do_io(std::istream& inStream, std::ostream& outStream) {
+    std::vector<char> data = read_data(inStream);
     const StreamConfigGuard scgi(inStream);
     const StreamConfigGuard scgo(outStream);
-    return caugth([&] {
-      outStream.exceptions(std::ios::failbit | std::ios::badbit);
-      outStream.write(data->data(), data->size());
-      outStream.flush();
-    });
+    outStream.exceptions(std::ios::failbit | std::ios::badbit);
+    outStream.write(data.data(), data.size());
+    outStream.flush();
   }
 
 
@@ -407,10 +389,10 @@ namespace cslib {
         std::chrono::day(day)
       };
       if (!ymd.ok())
-        throw std::logic_error(to_str("Invalid date: ", day, "-", month, "-", year));
+        throw std::logic_error("Invalid date: " + i2s(day) + "-" + i2s(month) + "-" + i2s(year));
       // Determine time
       if ((hour >= 24 || hour < 0) || (min >= 60 || min < 0) || (sec >= 60 || sec < 0))
-        throw std::logic_error(to_str("Invalid time: ", hour, ":", min, ":", sec));
+        throw std::logic_error("Invalid time: " + i2s(hour) + ":" + i2s(min) + ":" + i2s(sec));
       std::chrono::hh_mm_ss hms{
         std::chrono::hours(hour) +
         std::chrono::minutes(min) +
@@ -539,22 +521,8 @@ namespace cslib {
 
 
 
-  maybe<stdfs::path> where_is_path_really(stdfs::path path) noexcept {
-    /*
-      Returns the actual path of the entry on disk
-      but won't resolve symlinks.
-    */
-    return caugth([&] {
-      if (stdfs::exists(path) && stdfs::is_symlink(path))
-        return stdfs::read_symlink(path);
-      return stdfs::canonical(path);
-    });
-  }
   MACRO PATH_SEPARATOR = IS_WINDOWS ? '\\' : '/';
-  class File;
   class Folder;
-  class BizarreRoad;
-  using road_t = std::variant<File, Folder, BizarreRoad>;
   class Road { public:
     /*
       Abstract base class for filesystem entries.
@@ -570,16 +538,12 @@ namespace cslib {
     // Path management
     str_t str() const noexcept { return isAt.string(); }
     str_t name() const noexcept { return isAt.filename().string(); }
-    maybe<stdfs::file_type> type() const noexcept {
-      return caugth([&] {
-        return stdfs::status(isAt).type();
-      });
+    stdfs::file_type type() const {
+      return stdfs::status(isAt).type();
     }
-    maybe<std::chrono::system_clock::time_point> last_modified() const noexcept {
-      return caugth([&] {
-        auto ftime = stdfs::last_write_time(isAt);
-        return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
-      });
+    std::chrono::system_clock::time_point last_modified() const {
+      auto ftime = stdfs::last_write_time(isAt);
+      return std::chrono::time_point_cast<std::chrono::system_clock::duration>(ftime - stdfs::file_time_type::clock::now() + std::chrono::system_clock::now());
     }
     size_t depth() const noexcept {
       /*
@@ -588,12 +552,12 @@ namespace cslib {
           size_t depth = path.depth();
           // depth = 3 (because there are 3 directories before the file)
       */
-      return separate(this->str(), to_str(PATH_SEPARATOR)).size() - 1;
+      return separate(this->str(), c2s(PATH_SEPARATOR)).size() - 1;
     }
-    maybe<Folder> operator[](size_t index) const noexcept;
+    Folder operator[](size_t index) const;
 
 
-    [[nodiscard]] maybe<void> rename_self_to(strv_t newName) noexcept {
+    void rename_self_to(str_t newName) {
       /*
         Rename the entry to a new name.
         Note:
@@ -601,17 +565,14 @@ namespace cslib {
           are not created
       */
       if (newName.find(PATH_SEPARATOR) != str_t::npos)
-        return unexpect<std::invalid_argument>("Filename can't be moved with this function (previous: ", this, ", new: '", newName, "')");
+        throw std::invalid_argument("Filename can't be moved with this function (previous: '" + str() + "', new: '" + newName + "')");
       const stdfs::path newPath = isAt.parent_path() / newName;
       if (newName.empty())
-        return unexpect<std::invalid_argument>("Can't rename ", this, " to an empty name");
+        throw std::invalid_argument("Can't rename " + str() + " to an empty name");
       if (stdfs::exists(isAt.parent_path() / newName))
-        return unexpect<std::runtime_error>("File already exists: '", newPath.string(), "'");
-      return caugth([&] {
-        stdfs::rename(isAt, newPath);
-      });
+        throw std::runtime_error("File already exists: '" + newPath.string() + "'");
+      stdfs::rename(isAt, newPath);
       isAt = newPath; // Update the path
-      return {};
     }
 
 
@@ -640,15 +601,12 @@ namespace cslib {
       /*
         Resolves the actual path for it's kids
       */
-      if (where.empty())
-        throw std::invalid_argument("Path empty");
-      maybe<stdfs::path> at = where_is_path_really(where);
-      if (!at.has_value())
-        throw std::runtime_error("Couldn't resolve path of '" + where.string() + "'");
-      isAt = *at;
+      if (stdfs::exists(where) && stdfs::is_symlink(where))
+        isAt = stdfs::read_symlink(where);
+      isAt = stdfs::canonical(where);
     }
 
-    static maybe<Road> create_self(stdfs::path where) {
+    public: static Road create_self(stdfs::path where) {
       /*
         Creates a new instance of Road without
         allowing global access of constructor
@@ -656,9 +614,7 @@ namespace cslib {
         should be taken to ensure proper
         initialization
       */
-      return caugth([&] {
-        return Road(where);
-      });
+      return Road(where);
     }
   };
 
@@ -674,8 +630,7 @@ namespace cslib {
     BizarreRoad(stdfs::path where) : Road(where) {
       if (!stdfs::exists(isAt))
         throw std::invalid_argument("Path '" + isAt.string() + "' does not exist");
-      if (this->type() == stdfs::file_type::regular or
-          this->type() == stdfs::file_type::directory)
+      if (this->type() == stdfs::file_type::regular or this->type() == stdfs::file_type::directory)
         throw std::runtime_error("Path '" + isAt.string() + "' is not a bizarre file");
     }
   };
@@ -694,20 +649,18 @@ namespace cslib {
     File(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
       if (createIfNotExists && !stdfs::exists(where))
         std::ofstream(where) << "";
-      if (!stdfs::is_regular_file(where))
+      if (!stdfs::is_regular_file(where) && stdfs::exists(where))
         throw std::invalid_argument("Path '" + where.string() + "' is not a regular file");
       return where;
     }()) {}
 
 
-    maybe<str_t> read_text() const noexcept {
+    str_t read_text() const {
       std::ifstream file(isAt, std::ios::in);
-      maybe<std::vector<char>> data = read_data(file);
-      if (!data)
-        return std::unexpected(data.error());
-      return str_t(data->begin(), data->end());
+      std::vector<char> data = read_data(file);
+      return str_t(data.begin(), data.end());
     }
-    maybe<void> edit_text(const str_t& newText) const noexcept {
+    void edit_text(const str_t& newText) const {
       std::ofstream file(isAt, std::ios::out | std::ios::trunc);
       std::istringstream streamedData(newText);
       return do_io(streamedData, file);
@@ -718,10 +671,10 @@ namespace cslib {
     size_t bytes() const noexcept {return stdfs::file_size(isAt);}
 
 
-    [[nodiscard]] maybe<void> move_self_into(Folder newLocation) noexcept;
+    void move_self_into(Folder newLocation);
 
 
-    [[nodiscard]] maybe<File> copy_self_into(Folder newLocation, stdfs::copy_options options = stdfs::copy_options::none) const noexcept;
+    File copy_self_into(Folder newLocation, stdfs::copy_options options = stdfs::copy_options::none) const;
   };
 
 
@@ -731,14 +684,14 @@ namespace cslib {
       Child class of Path that represents a folder.
       Example:
         Folder folder("/gitstuff/cslib");
-        if (folder.has(Road("/gitstuff/cslib/cslib.h++")))
+        if (folder.has(Road("cslib.h++")))
           std::cout << "Folder contains the file\n";
     */
     Folder() = default;
     Folder(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
       if (createIfNotExists && !stdfs::exists(where))
         stdfs::create_directory(where);
-      if (!stdfs::is_directory(where))
+      if (!stdfs::is_directory(where) && stdfs::exists(where))
         throw std::invalid_argument("Path '" + where.string() + "' is not a directory");
       return where;
     }()) {}
@@ -749,142 +702,92 @@ namespace cslib {
     }
 
 
-    std::vector<road_t> list() const noexcept {
-      /*
-        List all entries in the folder.
-        Returns a vector of Path, File and Folder objects.
-      */
-      std::vector<road_t> result;
-      for (stdfs::directory_entry entry : stdfs::directory_iterator(isAt))
-        switch (entry.status().type()) {
-          case stdfs::file_type::regular:
-            result.emplace_back(File(entry.path()));
-            break;
-          case stdfs::file_type::directory:
-            result.emplace_back(Folder(entry.path()));
-            break;
-          default: // other types (symlinks, sockets, etc.)
-            result.emplace_back(BizarreRoad(entry.path()));
-            break;
-        }
-      return result;
-    }
-
-
-    std::vector<Road> untyped_list() const noexcept {
+    std::vector<Road> list() const {
       std::vector<Road> result;
       for (const stdfs::directory_entry& entry : stdfs::directory_iterator(isAt))
-        result.emplace_back(Road::create_self(entry.path()).value());
+        result.emplace_back(Road::create_self(entry.path()));
       return result;
     }
 
 
-    maybe<road_t> find(strv_t lookFor) const noexcept {
+    Road find(str_t name) const {
       /*
         Check if the folder contains a file or folder with
         the given relative path. If it does, return the
         corresponding Road object.
-        Note:
-          Path MUST be relative
         Note 2:
           Using [] operator instead of .at() to avoid exceptions
           and to allow checking for existence
       */
-      if (lookFor.empty())
-        return unexpect<std::invalid_argument>("Path is empty");
+      if (name.empty())
+        throw std::invalid_argument("Name is empty");
       if constexpr (IS_WINDOWS) {
-        if (lookFor[2] == PATH_SEPARATOR && lookFor[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
-          return unexpect<std::invalid_argument>("Path starts with a drive letter and a path separator, thus is absolute");
+        if (name[2] == PATH_SEPARATOR && name[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
+          throw std::invalid_argument("Name starts with a drive letter and a path separator, thus is absolute");
       }
       else {
-        if (lookFor[0] == PATH_SEPARATOR)
-          return unexpect<std::invalid_argument>("Path starts with a path separator, thus is absolute");
+        if (name[0] == PATH_SEPARATOR)
+          throw std::invalid_argument("Path starts with a path separator, thus is absolute");
       }
-      if (stdfs::exists(isAt / lookFor))
-        switch (stdfs::status(isAt / lookFor).type()) {
-          case stdfs::file_type::regular: return File(isAt / lookFor);
-          case stdfs::file_type::directory: return Folder(isAt / lookFor);
-          default: return BizarreRoad(isAt / lookFor); // Other types (symlinks, sockets, etc.)
-        }
-      return unexpect<std::runtime_error>("Couldn't find '", lookFor, "' in here '", str(), "'");
-    }
-    maybe<Road> untyped_find(strv_t path) const noexcept {
-      maybe<road_t> road = find(path);
-      if (!road)
-        return std::unexpected(road.error());
-      // Since std::visit wont work
-      if (std::holds_alternative<File>(*road))
-        return Road::create_self(std::get<File>(*road).isAt).value();
-      else if (std::holds_alternative<Folder>(*road))
-        return Road::create_self(std::get<Folder>(*road).isAt).value();
-      else if (std::holds_alternative<BizarreRoad>(*road))
-        return Road::create_self(std::get<BizarreRoad>(*road).isAt).value();
-      return fake_return<maybe<Road>>();
+      if (stdfs::exists(isAt / name))
+        return Road::create_self(isAt / name);
+      else
+        throw std::runtime_error("Couldn't find '" + name + "' in '" + str() + "'");
     }
 
-    maybe<Road> untyped_find(Road path) const noexcept {
-      maybe<Road> result = untyped_find(path.name());
-      if (!result)
-        return std::unexpected(result.error());
-      if (path.type() != result.value().type())
-        return unexpect<std::runtime_error>("'", path.name(), "' exists in '", this->str(), "' but they are of different types");
-      return result;
-    }
-    maybe<road_t> find(Road path) const noexcept {
-      maybe<Road> result = untyped_find(path);
-      if (!result)
-        return std::unexpected(result.error());
-      maybe<stdfs::file_type> type = result.value().type();
-      if (!type)
-        return std::unexpected(type.error());
-      switch (*type) {
-        case stdfs::file_type::regular: return File(*result);
-        case stdfs::file_type::directory: return Folder(*result);
-        default: return BizarreRoad(*result);
+
+    std::optional<Road> has(strv_t name) const {
+      if (name.empty())
+        throw std::invalid_argument("Name is empty");
+      if constexpr (IS_WINDOWS) {
+        if (name[2] == PATH_SEPARATOR && name[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
+          throw std::invalid_argument("Name starts with a drive letter and a path separator, thus is absolute");
       }
+      else {
+        if (name[0] == PATH_SEPARATOR)
+          throw std::invalid_argument("Path starts with a path separator, thus is absolute");
+      }
+      if (stdfs::exists(isAt / name))
+        return Road::create_self(isAt / name);
+      else
+        return std::nullopt;
     }
 
 
-    [[nodiscard]] maybe<void> move_self_into(Folder parentDict) noexcept {
+    void move_self_into(Folder parentDict) {
       /*
         Important note:
           Upon moving, subfolder and file objects will still
           point to the old location.
       */
       if (stdfs::exists(parentDict / name()))
-        return unexpect<std::invalid_argument>("Path ", isAt, " already exists in folder ", parentDict);
+        throw std::invalid_argument("Path '" + isAt.string() + "' already exists in folder '" + parentDict.str() + "'");
       stdfs::rename(isAt, parentDict / name());
       isAt = parentDict / name();
-      return {};
     }
 
 
-    [[nodiscard]] maybe<Folder> copy_self_into(Folder parentDict) const noexcept {
+    Folder copy_self_into(Folder parentDict) const {
       if (stdfs::exists(parentDict / name()))
-        return unexpect<std::invalid_argument>("Path '", str(), "' already exists in folder '", parentDict.str(), "'");
+        throw std::invalid_argument("Path '" + str() + "' already exists in folder '" + parentDict.str() + "'");
       stdfs::copy(isAt, parentDict / name(), stdfs::copy_options::recursive);
       return Folder(parentDict / name());
     }
 
 
-    [[nodiscard]] maybe<void> copy_content_into(Folder otherDir, stdfs::copy_options options) const noexcept {
+    void copy_content_into(Folder otherDir, stdfs::copy_options options) const noexcept {
       /*
         Copying self with custom options for extra
         control
       */
-      try {
-        stdfs::copy(isAt, otherDir, options);
-      } catch (...) {
-        return std::unexpected(std::current_exception());
-      }
-      return {};
+      stdfs::copy(isAt, otherDir, options);
     }
   };
 
 
 
   // Implementations for Road stuff due to constructors not being defined yet
-  maybe<Folder> Road::operator[](size_t index) const noexcept {
+  Folder Road::operator[](size_t index) const {
     /*
       Find parent paths by layer
       Example:
@@ -894,26 +797,25 @@ namespace cslib {
     */
     stdfs::path parent = isAt;
     if (index >= depth())
-      return unexpect<std::invalid_argument>("Trying to reach (", index, ") fruther than path '", str(), "' would allow (", depth(), ")");
+      throw std::invalid_argument("Trying to reach (" + i2s(index) + ") fruther than path '" + str() + "' would allow (" + i2s(depth()) + ")");
     for ([[maybe_unused]] size_t _ : range(depth() - index))
       parent = parent.parent_path();
     return Folder(parent);
   }
-  [[nodiscard]] maybe<void> File::move_self_into(Folder newLocation) noexcept {
+  void File::move_self_into(Folder newLocation) {
     if (stdfs::exists(newLocation / name()))
-      return unexpect<std::invalid_argument>("File '", name(), "' already exists in folder ", newLocation.str());
+      throw std::invalid_argument("File '" + name() + "' already exists in folder '" + newLocation.str() + "'");
     stdfs::rename(isAt, newLocation / name());
     isAt = newLocation / name(); // Update the path
-    return {};
   }
-  [[nodiscard]] maybe<File> File::copy_self_into(Folder newLocation, stdfs::copy_options options) const noexcept {
+  File File::copy_self_into(Folder newLocation, stdfs::copy_options options) const {
     /*
       Copying self with custom options for extra
       control
     */
     stdfs::copy_file(isAt, newLocation / name(), options);
     if (!stdfs::exists(newLocation / name()))
-      return unexpect<std::runtime_error>("Failed to copy file to '", (newLocation / name()).string(), "'");
+      throw std::runtime_error("Failed to copy file to '" + (newLocation / name()).string() + "'");
     return File(newLocation / name());
   }
 
@@ -947,13 +849,12 @@ namespace cslib {
   class TempFile final : public File { public:
     /*
       Create a temporary file with a random name in the system's
-      temporary directory. The name is generated by rolling dice
-      to create a random string of letters and digits.
+      temporary directory.
     */
     TempFile() : File([] {
       str_t tempFileName;
       // Ensure the file does not already exist
-      while (stdfs::exists(stdfs::temp_directory_path() / tempFileName))
+      while (stdfs::exists(stdfs::temp_directory_path() / tempFileName)) // Loops over forever until done
         tempFileName = "cslibTempFile_" + scramble_name() + ".tmp";
       return stdfs::temp_directory_path() / tempFileName;
     }(), true) {}
@@ -972,10 +873,9 @@ namespace cslib {
   class TempFolder final : public Folder { public:
     /*
       Create a temporary folder with a random name in the system's
-      temporary directory. The name is generated by rolling dice
-      to create a random string of letters and digits.
+      temporary directory.
       Note:
-        Destructor also takes all files in the folder
+        Destructor also takes all entries in the folder
         into account and deletes them.
     */
     TempFolder() : Folder([] {
@@ -988,6 +888,7 @@ namespace cslib {
       if (stdfs::exists(isAt))
         stdfs::remove_all(isAt);
     }
+
 
 
     TempFolder(const TempFolder&) = delete;
@@ -1034,43 +935,9 @@ namespace cslib {
 
 
 
-  /*
-    'I know what I am doing' functions to avoid repetitive
-    error handling code with safety-nets
-  */
-  template <typename T, typename... VTs>
-  inline constexpr const T get(const std::variant<VTs...>& variant) {
-    if (!std::holds_alternative<T>(variant))
-      throw std::invalid_argument("Expected variant type (id) ", typeid(T).name(), " but got (index) ", variant.index());
-    return std::get<T>(variant);
-  }
-  template <typename T, typename... VTs>
-  inline constexpr T get(const std::variant<VTs...>& variant) {
-    if (!std::holds_alternative<T>(variant))
-      throw std::invalid_argument("Expected variant type (id) ", typeid(T).name(), " but got (index) ", variant.index());
-    return std::get<T>(variant);
-  }
-  template <typename T, typename... VTs>
-  inline constexpr bool holds(const std::variant<VTs...>& variant) noexcept {
-    return std::holds_alternative<T>(variant);
-  }
-  template <typename T, typename _>
-  inline constexpr T get(const std::expected<T, _>& expected) noexcept {
-    /*
-      If you are certain that the expected contains
-      a value, use this to save code and have the
-      safety of throwing an error if it doesn't.
-    */
-    if (!expected)
-      throw std::invalid_argument("Expected value but got error");
-    return expected.value();
-  }
-
-
-
   template <typename To = int, typename From>
   requires (std::is_arithmetic_v<From> && std::is_arithmetic_v<To>)
-  inline constexpr maybe<To> to_number(const From& number) noexcept {
+  inline constexpr To to_number(const From& number) {
     /*
       Gives an additional layer of safety when
       converting numbers with different sizes.
@@ -1080,7 +947,7 @@ namespace cslib {
     */
     static_assert(!std::is_same_v<From, To>, "Conversion between same types is not necessary");
     if (number < lowest_value_of<To>() || number > highest_value_of<To>())
-      return unexpect("Number ", number, " is higher/lower than ", lowest_value_of<To>(), "/", highest_value_of<To>());
+      throw std::invalid_argument("Number " + i2s(number) + " is higher/lower than " + i2s(lowest_value_of<To>()) + "/" + i2s(highest_value_of<To>()));
     return To(number);
   }
 
@@ -1110,8 +977,7 @@ namespace cslib {
 
 
 
-  template <typename T>
-  inline constexpr bool between(T&& val, T&& atLeast, T&& atMost) noexcept {
+  inline constexpr bool between(auto&& val, auto&& atLeast, auto&& atMost) noexcept {
     // Inclusive to allow 0 in unsigned types
     if (atLeast > atMost)
       std::swap(atLeast, atMost);

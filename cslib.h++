@@ -39,15 +39,12 @@ namespace cslib {
   // Other
   using str_t = std::string;
   using strv_t = std::string_view;
-  using byte_t = char; /*
-    Differentiate between a char as byte and
-    a char as character in a string */
   template <typename T>
   using sptr = std::shared_ptr<T>;
   template <typename T>
   using uptr = std::unique_ptr<T>;
   namespace stdfs = std::filesystem;
-  #define MACRO inline constexpr auto // Macros for macro definitions
+  #define MACRO inline constexpr auto // Example MACRO pi = 3.14; instead of #define pi 3.14
   MACRO IS_WINDOWS = [] {
     #ifdef _WIN32
       return true;
@@ -58,10 +55,9 @@ namespace cslib {
 
 
 
-  template <typename... Streamable>
-  str_t to_str(Streamable&&... streamable) noexcept {
+  str_t to_str(auto&&... streamable) noexcept {
     std::ostringstream oss;
-    (oss << ... << std::forward<Streamable>(streamable));
+    (oss << ... << std::forward<decltype(streamable)>(streamable));
     return oss.str();
   }
 
@@ -225,9 +221,9 @@ namespace cslib {
 
 
 
-  str_t stringify_container(const auto& vec) {
+  str_t stringify_container(const auto& iterable) {
     /*
-      Convert a vector to a string representation.
+      Convert a iterable to a string representation.
       Note:
         No noexcept because we don't know if something
         internally would throw
@@ -235,7 +231,7 @@ namespace cslib {
         cslib::stringify_container({1, 2, 3}); // "{1, 2, 3}"
     */
     str_t result = "{";
-    for (const auto& item : vec)
+    for (const auto& item : iterable)
       result += to_str(item) + ", ";
     if (result.length() > 1) { // If there are items
       result.pop_back(); // Remove the last comma
@@ -276,8 +272,8 @@ namespace cslib {
 
   std::vector<str_t> separate(strv_t strv, strv_t delimiter = "") noexcept {
     std::vector<str_t> tokens;
-    for (auto&& part : strv | std::views::split(delimiter))
-        tokens.emplace_back(part.begin(), part.end());
+    for (std::ranges::subrange<const char*>&& part : strv | std::views::split(delimiter))
+      tokens.emplace_back(part.begin(), part.end());
     return tokens;
   }
 
@@ -483,11 +479,8 @@ namespace cslib {
         prefixStream << Reset;
       prefix = prefixStream.str();
     }
-    std::ostream& operator<<(const auto& msg) const noexcept {
-      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << msg;
-    }
     std::ostream& operator<<(auto&& msg) const noexcept {
-      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << std::forward<decltype(msg)>(msg);
+      return outTo << '[' << TimeStamp().as_str() << ']' << prefix << std::flush << std::forward<decltype(msg)>(msg);
     }
   };
 
@@ -527,10 +520,14 @@ namespace cslib {
     /*
       Abstract base class for filesystem entries.
       Represents a path in the filesystem and provides
-      methods to manage it.
+      methods to manage it. Think of it as a pointer
+      for stuff on disk.
       Note:
         Copying/Moving/changing the object won't change
         the represented entry on the disk.
+      Example:
+        (int*)0x123 -> 42 those 4 bytes on stack/heap/seg
+        (Road)"/ex.txt" -> the actual file on disk
     */
     stdfs::path isAt; // Covers move and copy semantics
 
@@ -580,11 +577,12 @@ namespace cslib {
     bool operator!=(Road other) const noexcept { return !(*this == other); }
     bool operator==(stdfs::path other) const noexcept { return this->isAt == other; }
     bool operator!=(stdfs::path other) const noexcept { return !(*this == other); }
+    bool operator==(stdfs::file_type type) const noexcept { return this->type() == type; }
+    bool operator!=(stdfs::file_type type) const noexcept { return this->type() != type; }
     // Implicitly converts wide (c-)strings to stdfs::path 
 
 
     // Transform into stl
-    operator str_t() const noexcept { return this->str(); }
     operator stdfs::path() const noexcept { return this->isAt; }
     operator stdfs::path&() noexcept { return this->isAt; }
     operator const stdfs::path&() const noexcept { return this->isAt; }
@@ -630,7 +628,7 @@ namespace cslib {
     BizarreRoad(stdfs::path where) : Road(where) {
       if (!stdfs::exists(isAt))
         throw std::invalid_argument("Path '" + isAt.string() + "' does not exist");
-      if (this->type() == stdfs::file_type::regular or this->type() == stdfs::file_type::directory)
+      if (*this == stdfs::file_type::regular or *this == stdfs::file_type::directory)
         throw std::runtime_error("Path '" + isAt.string() + "' is not a bizarre file");
     }
   };
@@ -648,7 +646,7 @@ namespace cslib {
     File() = default;
     File(stdfs::path where, bool createIfNotExists = false) : Road([where, createIfNotExists] {
       if (createIfNotExists && !stdfs::exists(where))
-        std::ofstream(where) << "";
+        std::ofstream(where) << ""; // TODO: Replace with do_io to enable exceptions
       if (!stdfs::is_regular_file(where) && stdfs::exists(where))
         throw std::invalid_argument("Path '" + where.string() + "' is not a regular file");
       return where;
@@ -668,7 +666,7 @@ namespace cslib {
 
 
     str_t extension() const noexcept {return isAt.extension().string();}
-    size_t bytes() const noexcept {return stdfs::file_size(isAt);}
+    size_t size() const noexcept {return stdfs::file_size(isAt);}
 
 
     void move_self_into(Folder newLocation);
@@ -710,47 +708,36 @@ namespace cslib {
     }
 
 
-    Road find(str_t name) const {
+    Road find(strv_t name) const {
       /*
         Check if the folder contains a file or folder with
         the given relative path. If it does, return the
         corresponding Road object.
-        Note 2:
-          Using [] operator instead of .at() to avoid exceptions
-          and to allow checking for existence
       */
       if (name.empty())
         throw std::invalid_argument("Name is empty");
       if constexpr (IS_WINDOWS) {
-        if (name[2] == PATH_SEPARATOR && name[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
-          throw std::invalid_argument("Name starts with a drive letter and a path separator, thus is absolute");
+        if (name.length() > 2)
+          if (name.at(2) == PATH_SEPARATOR && name.at(1) == ':') // C:\ (c = 0, : = 1, \ = 2)
+            throw std::invalid_argument("Name starts with a drive letter and a path separator, thus is absolute");
       }
       else {
-        if (name[0] == PATH_SEPARATOR)
+        if (name.at(0) == PATH_SEPARATOR)
           throw std::invalid_argument("Path starts with a path separator, thus is absolute");
       }
       if (stdfs::exists(isAt / name))
         return Road::create_self(isAt / name);
       else
-        throw std::runtime_error("Couldn't find '" + name + "' in '" + str() + "'");
+        throw std::runtime_error("Couldn't find '" + to_str(name) + "' in '" + str() + "'");
     }
 
 
     std::optional<Road> has(strv_t name) const {
-      if (name.empty())
-        throw std::invalid_argument("Name is empty");
-      if constexpr (IS_WINDOWS) {
-        if (name[2] == PATH_SEPARATOR && name[1] == ':') // C:\ (c = 0, : = 1, \ = 2)
-          throw std::invalid_argument("Name starts with a drive letter and a path separator, thus is absolute");
-      }
-      else {
-        if (name[0] == PATH_SEPARATOR)
-          throw std::invalid_argument("Path starts with a path separator, thus is absolute");
-      }
-      if (stdfs::exists(isAt / name))
-        return Road::create_self(isAt / name);
-      else
+      try {
+        return find(name);
+      } catch (const std::runtime_error& e) {
         return std::nullopt;
+      }
     }
 
 
@@ -821,7 +808,7 @@ namespace cslib {
 
 
 
-  str_t scramble_name(size_t len = 5ULL /*~59^n possible combinations*/ ) noexcept {
+  str_t scramble_name(size_t len = 5 /*~59^n possible combinations*/ ) noexcept {
     /*
       Generate a random filename with a length of `SCRAMBLE_LEN`
       characters. The filename consists of uppercase and lowercase
@@ -834,7 +821,7 @@ namespace cslib {
         A possible output could be "aB3cX..."
     */
     std::ostringstream randomName;
-    for ([[maybe_unused]] auto _ : range(len))
+    for ([[maybe_unused]] int _ : range(len))
       switch (roll_dice(0, 2)) {
         case 0: randomName << char(roll_dice('A', 'Z')); break; // Uppercase letter
         case 1: randomName << char(roll_dice('a', 'z')); break; // Lowercase letter
@@ -982,5 +969,47 @@ namespace cslib {
     if (atLeast > atMost)
       std::swap(atLeast, atMost);
     return val >= atLeast && val <= atMost;
+  }
+
+
+
+  str_t common_prefix(std::vector<str_t> strs) noexcept { // TODO make more readable
+    if (strs.empty())
+      return "";
+    strv_t prefix(strs.at(0));
+    for (size_t i = 1; i < strs.size(); ++i) {
+      const strv_t current(strs.at(i));
+      size_t j = 0;
+      for (; j < prefix.size() && j < current.size(); ++j) {
+        if (prefix.at(j) != current.at(j))
+        break;
+      }
+      prefix = prefix.substr(0, j);
+      if (prefix.empty())
+        break;
+    }
+    return str_t(prefix);
+  }
+
+  str_t common_suffix(std::vector<str_t> strs) noexcept { // TODO make more readable
+    if (strs.empty())
+      return "";
+    std::string_view suffix(strs.at(0));
+    for (size_t i = 1; i < strs.size(); ++i) {
+      const std::string_view current(strs.at(i));
+      size_t j = 0;
+      while (j < suffix.size() && j < current.size() && suffix.at(suffix.size() - 1 - j) == current.at(current.size() - 1 - j))
+        ++j;
+      suffix = suffix.substr(suffix.size() - j, j);
+      if (suffix.empty())
+    break;
+    }
+    return str_t(suffix);
+  }
+
+
+
+  str_t ws2s(std::wstring_view wstring) noexcept {
+    return std::filesystem::path(wstring).string();
   }
 } // namespace cslib

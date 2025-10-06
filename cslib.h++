@@ -1,14 +1,11 @@
 // LICENSE: ☝️🤓
 
 // Including every single header that might ever be needed
-#include <initializer_list>
 #include <filesystem>
-#include <functional>
 #include <expected>
 #include <fstream>
 #include <cstring>
 #include <sstream>
-#include <variant>
 #include <utility>
 #include <ranges>
 #include <random>
@@ -16,7 +13,6 @@
 #include <chrono>
 #include <thread>
 #include <future>
-#include <mutex>
 #include <array>
 
 
@@ -96,14 +92,14 @@ namespace cslib {
     std::array<char, 128> buffer = {};
     str_t result;
     int exitCode = -1;
-    FILE* pipe = popen(command.data(), "r");
+    FILE* pipe = popen(command.data(), "r"); // Windows has macro to allow go without '_' prefix
     if (!pipe)
-      return std::unexpected<int>(exitCode);
+      return std::unexpected(exitCode);
     while (fgets(buffer.data(), buffer.size(), pipe) != nullptr)
       result += buffer.data();
-    exitCode = pclose(pipe);
+    exitCode = pclose(pipe); // Windows has macro to allow go without '_' prefix
     if (exitCode != 0)
-      return std::unexpected<int>(exitCode);
+      return std::unexpected(exitCode);
     return result;
   }
 
@@ -148,7 +144,7 @@ namespace cslib {
         This function should never be reached.
     */
     throw std::logic_error(errMsg.data());
-    std::unreachable();
+    std::unreachable(); // Silence compiler
   }
 
 
@@ -180,6 +176,9 @@ namespace cslib {
   std::expected<std::invoke_result_t<F, Args...>, std::exception_ptr> retry(F&& f, size_t maxAttempts, Args&&... args) noexcept {
     /*
       Retry a function up to `maxAttempts` times
+      Note:
+        If maxAttempts is 0, returns std::unexpected
+        with nullptr exception_ptr (no value but also no error)
       Example:
         auto func = [] {
           // Do something that might fail
@@ -289,7 +288,7 @@ namespace cslib {
     */
     if (min > max)
       std::swap(min, max);
-    static std::mt19937 generator(std::random_device{}());
+    thread_local static std::mt19937 generator(std::random_device{}());
     std::uniform_int_distribution<int> distribution(min, max);
     return distribution(generator);
   }
@@ -336,10 +335,12 @@ namespace cslib {
       stream.imbue(loc);
       stream.tie(tie);
       stream.clear(rdstate); // restore stream state bits
-      if (auto* in = dynamic_cast<std::istream*>(&stream); in && gpos != std::streampos(-1))
-        in->seekg(gpos);
-      else if (auto* out = dynamic_cast<std::ostream*>(&stream); out && ppos != std::streampos(-1))
-        out->seekp(ppos);
+      try {
+        if (auto* in = dynamic_cast<std::istream*>(&stream); in && gpos != std::streampos(-1))
+          in->seekg(gpos);
+        else if (auto* out = dynamic_cast<std::ostream*>(&stream); out && ppos != std::streampos(-1))
+          out->seekp(ppos);
+      } catch (...) { /* ignore */ } // don't rethrow
     }
   };
 
@@ -601,7 +602,8 @@ namespace cslib {
       */
       if (stdfs::exists(where) && stdfs::is_symlink(where))
         isAt = stdfs::read_symlink(where);
-      isAt = stdfs::canonical(where);
+      else
+        isAt = stdfs::canonical(where);
     }
 
     public: static Road create_self(stdfs::path where) {
@@ -708,7 +710,7 @@ namespace cslib {
     }
 
 
-    Road find(strv_t name) const {
+    std::optional<Road> find(strv_t name) const {
       /*
         Check if the folder contains a file or folder with
         the given relative path. If it does, return the
@@ -728,16 +730,13 @@ namespace cslib {
       if (stdfs::exists(isAt / name))
         return Road::create_self(isAt / name);
       else
-        throw std::runtime_error("Couldn't find '" + to_str(name) + "' in '" + str() + "'");
+        std::nullopt;
     }
 
 
+    [[deprecated("Use Folder::find instead. Is the same")]]
     std::optional<Road> has(strv_t name) const {
-      try {
-        return find(name);
-      } catch (const std::runtime_error& e) {
-        return std::nullopt;
-      }
+      return find(name);
     }
 
 
@@ -808,15 +807,13 @@ namespace cslib {
 
 
 
-  str_t scramble_name(size_t len = 5 /*~59^n possible combinations*/ ) noexcept {
+  str_t scramble_name(size_t len = 64 /*~59^n possible combinations*/ ) noexcept {
     /*
-      Generate a random filename with a length of `SCRAMBLE_LEN`
-      characters. The filename consists of uppercase and lowercase
-      letters and digits. `len` must be greater than 0 so that
-      temporary filenames can be generated.
+      Generate a random filename with a length of `len`
+      characters.
       Note:
-        If all possible names are exhausted, the calling code
-        will be stuck in an infinite loop.
+        A too low value for `len` opens the door to
+        nasty bugs.
       Example:
         A possible output could be "aB3cX..."
     */
@@ -839,7 +836,7 @@ namespace cslib {
       temporary directory.
     */
     TempFile() : File([] {
-      str_t tempFileName;
+      str_t tempFileName = "cslibTempFile_" + scramble_name() + ".tmp";
       // Ensure the file does not already exist
       while (stdfs::exists(stdfs::temp_directory_path() / tempFileName)) // Loops over forever until done
         tempFileName = "cslibTempFile_" + scramble_name() + ".tmp";
@@ -866,7 +863,7 @@ namespace cslib {
         into account and deletes them.
     */
     TempFolder() : Folder([] {
-      str_t tempFolderName;
+      str_t tempFolderName = "cslibTempFolder_" + scramble_name();
       while (stdfs::exists(stdfs::temp_directory_path() / tempFolderName))
         tempFolderName = "cslibTempFolder_" + scramble_name();
       return stdfs::temp_directory_path() / tempFolderName;
